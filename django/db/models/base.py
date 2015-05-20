@@ -693,8 +693,9 @@ class Model(six.with_metaclass(ModelBase)):
         assert update_fields is None or len(update_fields) > 0
         cls = origin = self.__class__
         # Skip proxies, but keep the origin as the proxy model.
-        if cls._meta.proxy:
-            cls = cls._meta.concrete_model
+        # COMMENTED BY KATRID
+        #if cls._meta.proxy:
+        #    cls = cls._meta.concrete_model
         meta = cls._meta
         if not meta.auto_created:
             signals.pre_save.send(sender=origin, instance=self, raw=raw, using=using,
@@ -1195,7 +1196,8 @@ class Model(six.with_metaclass(ModelBase)):
     @classmethod
     def _check_model(cls):
         errors = []
-        if cls._meta.proxy:
+        # Disabled to improve proxy models fields
+        if False and cls._meta.proxy:
             if cls._meta.local_fields or cls._meta.local_many_to_many:
                 errors.append(
                     checks.Error(

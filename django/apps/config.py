@@ -13,6 +13,8 @@ class AppConfig(object):
     Class representing a Django application and its configuration.
     """
 
+    dependencies = None
+
     def __init__(self, app_name, app_module):
         # Full Python path to the application eg. 'django.contrib.admin'.
         self.name = app_name

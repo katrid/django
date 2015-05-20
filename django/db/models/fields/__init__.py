@@ -135,12 +135,18 @@ class Field(RegisterLookupMixin):
     description = property(_description)
 
     def __init__(self, verbose_name=None, name=None, primary_key=False,
-            max_length=None, unique=False, blank=False, null=False,
+            max_length=None, unique=False, blank=True, null=True,
             db_index=False, rel=None, default=NOT_PROVIDED, editable=True,
             serialize=True, unique_for_date=None, unique_for_month=None,
             unique_for_year=None, choices=None, help_text='', db_column=None,
             db_tablespace=None, auto_created=False, validators=[],
-            error_messages=None):
+            error_messages=None,
+            # ui specific attributes
+            fieldset=None, tabpage=None, readonly=False, visible=True,
+            widget_attrs=None):
+        if primary_key:
+            null = False
+            blank = False
         self.name = name
         self.verbose_name = verbose_name  # May be set by set_attributes_from_name
         self._verbose_name = verbose_name  # Store original for deconstruction
@@ -161,6 +167,13 @@ class Field(RegisterLookupMixin):
         self.db_column = db_column
         self.db_tablespace = db_tablespace or settings.DEFAULT_INDEX_TABLESPACE
         self.auto_created = auto_created
+
+        # ui attributes
+        self.tabpage = tabpage
+        self.readonly = readonly
+        self.visible = visible
+        self.fieldset = fieldset
+        self.widget_attrs = widget_attrs
 
         # Adjust the appropriate creation counter, and save our local copy.
         if auto_created:
@@ -947,7 +960,8 @@ class AutoField(Field):
 
     def deconstruct(self):
         name, path, args, kwargs = super(AutoField, self).deconstruct()
-        del kwargs['blank']
+        if 'blank' in kwargs:
+            del kwargs['blank']
         kwargs['primary_key'] = True
         return name, path, args, kwargs
 
@@ -1001,6 +1015,7 @@ class BooleanField(Field):
 
     def __init__(self, *args, **kwargs):
         kwargs['blank'] = True
+        kwargs['null'] = False
         super(BooleanField, self).__init__(*args, **kwargs)
 
     def check(self, **kwargs):
@@ -1075,6 +1090,7 @@ class CharField(Field):
     description = _("String (up to %(max_length)s)")
 
     def __init__(self, *args, **kwargs):
+        kwargs.setdefault('max_length', 64)
         super(CharField, self).__init__(*args, **kwargs)
         self.validators.append(validators.MaxLengthValidator(self.max_length))
 
@@ -1115,7 +1131,10 @@ class CharField(Field):
     def to_python(self, value):
         if isinstance(value, six.string_types) or value is None:
             return value
-        return smart_text(value)
+        # Save null when value is "" (empty string)
+        # this change is needed for business systems
+        return smart_text(value) or None
+
 
     def get_prep_value(self, value):
         value = super(CharField, self).get_prep_value(value)
@@ -1496,8 +1515,8 @@ class DecimalField(Field):
     }
     description = _("Decimal number")
 
-    def __init__(self, verbose_name=None, name=None, max_digits=None,
-                 decimal_places=None, **kwargs):
+    def __init__(self, verbose_name=None, name=None, max_digits=18,
+                 decimal_places=2, **kwargs):
         self.max_digits, self.decimal_places = max_digits, decimal_places
         super(DecimalField, self).__init__(verbose_name, name, **kwargs)
 

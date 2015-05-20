@@ -2097,6 +2097,7 @@ class OneToOneField(ForeignKey):
 
     def __init__(self, to, to_field=None, **kwargs):
         kwargs['unique'] = True
+        kwargs.setdefault('null', False)
         super(OneToOneField, self).__init__(to, to_field, **kwargs)
 
     def deconstruct(self):
@@ -2230,6 +2231,8 @@ class ManyToManyField(RelatedField):
             through_fields=through_fields,
             db_constraint=db_constraint,
         )
+
+        kwargs.setdefault('null', False)
 
         super(ManyToManyField, self).__init__(**kwargs)
 

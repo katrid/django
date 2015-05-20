@@ -36,7 +36,9 @@ DEFAULT_NAMES = ('verbose_name', 'verbose_name_plural', 'db_table', 'ordering',
                  'order_with_respect_to', 'app_label', 'db_tablespace',
                  'abstract', 'managed', 'proxy', 'swappable', 'auto_created',
                  'index_together', 'apps', 'default_permissions',
-                 'select_on_save', 'default_related_name')
+                 'select_on_save', 'default_related_name', 'field_groups',
+                 # Special attributes
+                 'help_text', 'tabset', 'field_groups')
 
 
 class raise_deprecation(object):
@@ -146,6 +148,10 @@ class Options(object):
         self.apps = apps
 
         self.default_related_name = None
+
+        # Special attributes
+        self.tabset = None
+        self.field_groups = None
 
     @lru_cache(maxsize=None)
     def _map_model(self, link):

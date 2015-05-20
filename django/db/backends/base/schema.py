@@ -263,21 +263,35 @@ class BaseDatabaseSchemaEditor(object):
                 if autoinc_sql:
                     self.deferred_sql.extend(autoinc_sql)
 
-        # Add any unique_togethers
-        for fields in model._meta.unique_together:
-            columns = [model._meta.get_field(field).column for field in fields]
-            column_sqls.append(self.sql_create_table_unique % {
-                "columns": ", ".join(self.quote_name(column) for column in columns),
-            })
-        # Make the table
-        sql = self.sql_create_table % {
-            "table": self.quote_name(model._meta.db_table),
-            "definition": ", ".join(column_sqls)
-        }
-        if model._meta.db_tablespace:
-            tablespace_sql = self.connection.ops.tablespace_sql(model._meta.db_tablespace)
-            if tablespace_sql:
-                sql += ' ' + tablespace_sql
+        if model._meta.proxy:
+            # Add proxy fields to model table
+            table = self.quote_name(model._meta.db_table)
+            sqls = [self.sql_create_column % {"table": table, "column": col, "definition": ""} for col in column_sqls]
+
+            # Add any unique_togethers
+            for fields in model._meta.unique_together:
+                columns = [model._meta.get_field(field).column for field in fields]
+                sqls.append(self._create_unique_sql(model, columns))
+
+            sql = ";\n".join(sqls)
+        else:
+            # Add any unique_togethers
+            for fields in model._meta.unique_together:
+                columns = [model._meta.get_field(field).column for field in fields]
+                column_sqls.append(self.sql_create_table_unique % {
+                    "columns": ", ".join(self.quote_name(column) for column in columns),
+                })
+
+            # Make the table
+            sql = self.sql_create_table % {
+                "table": self.quote_name(model._meta.db_table),
+                "definition": ", ".join(column_sqls)
+            }
+
+            if model._meta.db_tablespace:
+                tablespace_sql = self.connection.ops.tablespace_sql(model._meta.db_tablespace)
+                if tablespace_sql:
+                    sql += ' ' + tablespace_sql
         # Prevent using [] as params, in the case a literal '%' is used in the definition
         self.execute(sql, params or None)
 

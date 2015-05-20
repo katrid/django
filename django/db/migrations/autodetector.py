@@ -120,7 +120,7 @@ class MigrationAutodetector(object):
             if not model._meta.managed:
                 self.old_unmanaged_keys.append((al, mn))
             elif al not in self.from_state.real_apps:
-                if model._meta.proxy:
+                if model._meta.proxy and not model._meta.local_fields:
                     self.old_proxy_keys.append((al, mn))
                 else:
                     self.old_model_keys.append((al, mn))
@@ -133,7 +133,7 @@ class MigrationAutodetector(object):
                 al not in self.from_state.real_apps or
                 (convert_apps and al in convert_apps)
             ):
-                if model._meta.proxy:
+                if model._meta.proxy and not model._meta.local_fields:
                     self.new_proxy_keys.append((al, mn))
                 else:
                     self.new_model_keys.append((al, mn))

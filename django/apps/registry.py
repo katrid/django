@@ -74,6 +74,9 @@ class Apps(object):
             if self.app_configs:
                 raise RuntimeError("populate() isn't reentrant")
 
+            # Adjust apps dependencies
+            installed_apps = adjust_dependencies(installed_apps)
+
             # Load app configs and app modules.
             for entry in installed_apps:
                 if isinstance(entry, AppConfig):
@@ -331,6 +334,39 @@ class Apps(object):
             for app_config in self.app_configs.values():
                 for model in app_config.get_models(include_auto_created=True):
                     model._meta._expire_cache()
+
+
+def get_dependencies(app):
+    r = []
+    if isinstance(app, str):
+        app = AppConfig.create(app)
+    deps = app.dependencies
+    if deps:
+        for dep in app.depends:
+            r += get_dependencies(dep)
+        return r + list(app.dependencies)
+    return []
+
+
+def adjust_dependencies(apps):
+    # adjust module dependency priority
+    apps = list(apps)
+    for entry in apps:
+        deps = get_dependencies(entry)
+        if deps:
+            apps.remove(entry)
+            i = 0
+            for dep in deps:
+                if not dep in apps:
+                    apps.append(dep)
+                    i = len(apps) - 1
+                    continue
+                i = max(i, apps.index(dep))
+            if i == 0:
+                apps.append(entry)
+            else:
+                apps.insert(i + 1, entry)
+    return apps
 
 
 apps = Apps(installed_apps=None)
