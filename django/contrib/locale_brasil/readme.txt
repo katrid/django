@@ -14,4 +14,6 @@ O resultado dessa ordem alfabética foi debatido aqui:
 
 https://sourceware.org/bugzilla/show_bug.cgi?id=3405
 
-
+Para que o Postgres use essa ordenação alfabética, esses settings poderiam
+ser adicionando no script que executa o Postgres na sua distro, ou no .bashrc
+do usuário postgres.
