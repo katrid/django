@@ -154,7 +154,7 @@ END LC_TIME
 ###############################
 LC_PAPER
 ###############################
-copy "en_GB"
+copy "pt_BR"
 END LC_PAPER
 
 
@@ -173,14 +173,20 @@ END LC_TELEPHONE
 ###############################
 LC_MEASUREMENT
 ###############################
-copy "en_GB"
+copy "pt_BR"
 END LC_MEASUREMENT
 
 
 ###############################
 LC_NAME
 ###############################
-copy "en_GB"
+
+name_fmt  "%d%t%g%t%m%t%f"
+name_miss "Miss."
+name_mr   "Mr."
+name_mrs  "Mrs."
+name_ms   "Ms."
+
 END LC_NAME
 
 
