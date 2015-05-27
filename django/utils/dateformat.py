@@ -1,3 +1,4 @@
+# -*- encoding: utf-8 -*-
 """
 PHP date() style date formatting
 See http://www.php.net/date for format strings
@@ -25,7 +26,7 @@ from django.utils.encoding import force_text
 from django.utils.timezone import get_default_timezone, is_aware, is_naive
 from django.utils.translation import ugettext as _
 
-re_formatchars = re.compile(r'(?<!\\)([aAbBcdDeEfFgGhHiIjlLmMnNoOPrsStTUuwWyYzZ])')
+re_formatchars = re.compile(r'(?<!\\)([aAbBcdDeEfFgGhHiIjJlLmMnNoOpPrsStTUuwWyYzZ])')
 re_escaped = re.compile(r'\\(.)')
 
 
@@ -124,6 +125,13 @@ class TimeFormat(Formatter):
     def i(self):
         "Minutes; i.e. '00' to '59'"
         return '%02d' % self.data.minute
+
+    def J(self):
+        "'1' if Daylight Savings Time, '0' otherwise."
+        if self.timezone and self.timezone.dst(self.data):
+            return 'hv'
+        else:
+            return 'h'
 
     def O(self):
         """
@@ -251,7 +259,7 @@ class DateFormat(TimeFormat):
 
     def M(self):
         "Month, textual, 3 letters; e.g. 'Jan'"
-        return MONTHS_3[self.data.month].title()
+        return MONTHS_3[self.data.month]
 
     def n(self):
         "Month without leading zeros; i.e. '1' to '12'"
@@ -264,6 +272,13 @@ class DateFormat(TimeFormat):
     def o(self):
         "ISO 8601 year number matching the ISO week number (W)"
         return self.data.isocalendar()[0]
+
+    def p(self):
+        "Portuguese ordinal suffix for the 1st day of the month; i.e. 'º'"
+        if self.data.day == 1:
+            return r'º'
+        else:
+            return ''
 
     def r(self):
         "RFC 2822 formatted date; e.g. 'Thu, 21 Dec 2000 16:01:07 +0200'"

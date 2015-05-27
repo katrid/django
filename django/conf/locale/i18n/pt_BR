@@ -1,0 +1,253 @@
+#
+# Charset: UTF-8
+#
+# Locale para o português brasileiro, legível por seres humanos
+#
+# Criado por Aristides CALDEIRA, baseado no locale
+# original da glibc
+#
+# As diferenças em relação ao locale original são:
+#     1. A ordem alfabética, que foi aprimorada
+#     2. Os nomes dos dias da semana e dos meses, que estão em
+#        minúsculas
+#     3. O formato de data e hora está um pouco mais descritivo
+#     4. Os números são agrupados com ponto de milhar e decimal corretos
+#
+
+#######################################
+LC_IDENTIFICATION
+#######################################
+
+title      "Portuguese locale for Brazil"
+address    ""
+contact    ""
+email      "ari@laumi.org"
+tel        ""
+fax        ""
+language   "Portuguese"
+territory  "Brazil"
+revision   "6.0"
+date       "2011-08-05"
+
+category  "pt_BR:2000";LC_IDENTIFICATION
+category  "pt_BR:2000";LC_CTYPE
+category  "pt_BR:2000";LC_COLLATE
+category  "pt_BR:2000";LC_TIME
+category  "pt_BR:2000";LC_NUMERIC
+category  "pt_BR:2000";LC_MONETARY
+category  "pt_BR:2000";LC_MESSAGES
+category  "pt_BR:2000";LC_PAPER
+category  "pt_BR:2000";LC_NAME
+category  "pt_BR:2000";LC_ADDRESS
+category  "pt_BR:2000";LC_TELEPHONE
+
+END LC_IDENTIFICATION
+
+
+###############################
+LC_CTYPE
+###############################
+copy "i18n"
+
+translit_start
+include "translit_combining";""
+translit_end
+END LC_CTYPE
+
+###############################
+LC_COLLATE
+###############################
+
+#
+# Usa ordem alfabética com tratamento de
+# maiúsculas/minúsculas antes de acentos
+#
+copy "latin_order_case_first"
+
+#
+# Maiúsculas antes de minúsculas
+#
+reorder-after <ECA>
+<MIN>
+<IMI>
+<EMI>
+
+#
+# Espaços antes das letras
+#
+reorder-after <9>
+<U202F> <U0020>;<BAS>;<MIN>;<U202F> # <NNBSP> espaço inseparável fino
+<U00A0> <U0020>;<BAS>;<MIN>;<U00A0> # <NBSP>  espaço inseparável
+<U0020> <U0020>;<BAS>;<MIN>;<U0020> # <SP>    espaço
+
+#
+# Ordena os acentos
+#
+reorder-after <BAS> # forma básica
+<CIR> # circumflexo
+<GRA> # grave
+<ACA> # agudo
+<TIL> # til
+<REU> # trema
+<CDI> # cedilha
+
+reorder-end
+
+END LC_COLLATE
+
+
+###############################
+LC_MESSAGES
+###############################
+
+yesexpr                 "^[1SsYy].*"
+noexpr                  "^[0Nn].*"
+
+END LC_MESSAGES
+
+
+###############################
+LC_MONETARY
+###############################
+
+int_curr_symbol           "BRL "
+currency_symbol           "R$"
+mon_decimal_point         ","
+mon_thousands_sep         "."
+mon_grouping              3;3
+positive_sign             ""
+negative_sign             "-"
+int_frac_digits           2
+frac_digits               2
+p_cs_precedes             1
+p_sep_by_space            1
+n_cs_precedes             1
+n_sep_by_space            1
+p_sign_posn               1
+n_sign_posn               1
+
+END LC_MONETARY
+
+
+###############################
+LC_NUMERIC
+###############################
+
+decimal_point           ","
+thousands_sep           "."
+grouping                3;3
+
+END LC_NUMERIC
+
+
+###############################
+LC_TIME
+###############################
+
+abday      "dom";"seg";"ter";"qua";"qui";"sex";"sáb"
+day        "domingo";"segunda-feira";"terça-feira";"quarta-feira";"quinta-feira";"sexta-feira";"sábado"
+abmon      "jan";"fev";"mar";"abr";"mai";"jun";"jul";"ago";"set";"out";"nov";"dez"
+mon        "janeiro";"fevereiro";"março";"abril";"maio";"junho"; \
+           "julho";"agosto";"setembro";"outubro";"novembro";"dezembro"
+
+#          "qui, 04/08/2011, 14:11:36 BRT"
+d_t_fmt    "%a, %d/%m/%Y, %H:%M:%S %Z"
+
+#          "04/08/2011"
+d_fmt      "%d/%m/%Y"
+
+#          "14:12:36"
+t_fmt      "%H:%M:%S"
+
+am_pm      "amd";"dmd"
+
+#          "02:12:36 dmd"
+t_fmt_ampm "%I:%M:%S %p"
+
+#           "qui, 04/08/2011, 14:11:36 BRT"
+date_fmt    "%a, %d/%m/%Y, %H:%M:%S %Z"
+
+# A semana tem 7 dias, como de costume, e começa na segunda-feira (ISO 8601)
+week    7;19971201;4
+
+# O primeiro dia da semana é a segunda-feira
+first_weekday 1
+
+# O primeiro dia de trabalho da semana é a segunda-feira
+first_workday 1
+
+END LC_TIME
+
+
+###############################
+LC_PAPER
+###############################
+
+# Papel tamanho A4
+height   297
+width    210
+
+END LC_PAPER
+
+
+###############################
+LC_TELEPHONE
+###############################
+
+tel_int_fmt  "+%c (%a) %l"
+tel_dom_fmt  "(%a) %l"
+int_prefix   "55"
+int_select   "00"
+
+END LC_TELEPHONE
+
+
+###############################
+LC_MEASUREMENT
+###############################
+
+# Sistema métrico decimal
+measurement    1
+
+END LC_MEASUREMENT
+
+
+###############################
+LC_NAME
+###############################
+
+name_fmt  "%d%t%g%t%m%t%f"
+name_mr   "Sr."
+name_mrs  "Sra."
+name_miss "Srta."
+name_ms   "Sra."
+
+END LC_NAME
+
+
+###############################
+LC_ADDRESS
+###############################
+
+postal_fmt   "\
+%f%N\
+%a%N\
+%d%N\
+%b%N\
+%s&t%h%t%e%t%r%N\
+%T%N\
+%c%N\
+%C%t%z%N"
+
+country_name "Brasil"
+country_ab2  "BR"
+country_ab3  "BRA"
+country_num  076
+country_car  "BRA"
+country_isbn 789
+lang_name    "português"
+lang_ab      "pt"
+lang_term    "por"
+lang_lib     "por"
+
+END LC_ADDRESS

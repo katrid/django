@@ -1,0 +1,214 @@
+#
+# Charset: UTF-8
+#
+# Locale para o inglês americano, legível por seres humanos
+#
+# Criado por Ari CALDEIRA, baseado no locale
+# original da glibc
+#
+# As diferenças em relação ao locale original são:
+#     1. A ordem alfabética, que foi aprimorada
+#     2. O formato de data e hora está um pouco mais descritivo, seguem o
+#        modelo britânico dia/mês/ano
+#     3. Os tamanhos do papel e medidas padrão seguem o modelo britânico
+#
+
+#######################################
+LC_IDENTIFICATION
+#######################################
+
+title      "English locale for United States"
+address    ""
+contact    ""
+email      "ari@laumi.org"
+tel        ""
+fax        ""
+language   "English"
+territory  "United States"
+revision   "6.0"
+date       "2011-08-05"
+
+category  "en_US:2000";LC_IDENTIFICATION
+category  "en_US:2000";LC_CTYPE
+category  "en_US:2000";LC_COLLATE
+category  "en_US:2000";LC_TIME
+category  "en_US:2000";LC_NUMERIC
+category  "en_US:2000";LC_MONETARY
+category  "en_US:2000";LC_MESSAGES
+category  "en_US:2000";LC_PAPER
+category  "en_US:2000";LC_NAME
+category  "en_US:2000";LC_ADDRESS
+category  "en_US:2000";LC_TELEPHONE
+
+END LC_IDENTIFICATION
+
+
+###############################
+LC_CTYPE
+###############################
+copy "pt_BR"
+END LC_CTYPE
+
+###############################
+LC_COLLATE
+###############################
+copy "pt_BR"
+END LC_COLLATE
+
+
+###############################
+LC_MESSAGES
+###############################
+
+yesexpr                 "^[1Yy].*"
+noexpr                  "^[0Nn].*"
+yesstr                  "yes"
+nostr                   "no"
+
+END LC_MESSAGES
+
+
+###############################
+LC_MONETARY
+###############################
+
+int_curr_symbol           "USD "
+currency_symbol           "$<U00A0>"
+mon_decimal_point         "."
+mon_thousands_sep         ","
+mon_grouping              3;3
+positive_sign             ""
+negative_sign             "-"
+frac_digits               2
+p_cs_precedes             1
+n_cs_precedes             1
+p_sep_by_space            0
+n_sep_by_space            0
+int_p_sep_by_space        0
+int_n_sep_by_space        0
+p_sign_posn               1
+n_sign_posn               3
+int_frac_digits           2
+
+END LC_MONETARY
+
+
+###############################
+LC_NUMERIC
+###############################
+
+decimal_point           "."
+thousands_sep           ","
+grouping                3;3
+
+END LC_NUMERIC
+
+
+###############################
+LC_TIME
+###############################
+
+#          "Sun";"Mon";"Tue";"Wed";"Thu";"Fri";"Sat"
+abday      "Sun";"Mon";"Tue";"Wed";"Thu";"Fri";"Sat"
+
+#          "Sunday";"Monday";"Tuesday";"Wednesday";"Thursday";"Friday";"Saturday"
+day        "Sunday";"Monday";"Tuesday";"Wednesday";"Thursday";"Friday";"Saturday"
+
+#          "Jan";"Feb";"Mar";"Apr";"May";"Jun";"Jul";"Aug";"Sep";"Oct";"Nov";"Dec"
+abmon      "Jan";"Feb";"Mar";"Apr";"May";"Jun";"Jul";"Aug";"Sep";"Oct";"Nov";"Dec"
+
+#          "January";"February";"March";"April";"May";"June"; \
+#          "July";"August";"September";"October";"November";"December"
+mon        "January";"February";"March";"April";"May";"June"; \
+           "July";"August";"September";"October";"November";"December"
+
+#          "Thu, 04/08/2011, 14:11:36 BRT"
+d_t_fmt    "%a, %d/%m/%Y, %H:%M:%S %Z"
+
+#          "04/08/2011"
+d_fmt      "%d/%m/%Y"
+
+#          "14:12:36"
+t_fmt      "%H:%M:%S"
+
+am_pm      "am";"pm"
+
+#          "02:12:36 pm"
+t_fmt_ampm "%I:%M:%S %p"
+
+#           "Thu, 04/08/2011, 14:11:36 BRT"
+date_fmt    "%a, %d/%m/%Y, %H:%M:%S %Z"
+
+# A semana tem 7 dias, como de costume, e começa na segunda-feira (ISO 8601)
+week    7;19971130;5
+
+# O primeiro dia da semana é a segunda-feira
+first_weekday 2
+
+# O primeiro dia de trabalho da semana é a segunda-feira
+first_workday 2
+
+END LC_TIME
+
+
+###############################
+LC_PAPER
+###############################
+copy "en_GB"
+END LC_PAPER
+
+
+###############################
+LC_TELEPHONE
+###############################
+
+tel_int_fmt  "+%c (%a) %l"
+tel_dom_fmt  "(%a) %l"
+int_select   "11"
+int_prefix   "1"
+
+END LC_TELEPHONE
+
+
+###############################
+LC_MEASUREMENT
+###############################
+copy "en_GB"
+END LC_MEASUREMENT
+
+
+###############################
+LC_NAME
+###############################
+copy "en_GB"
+END LC_NAME
+
+
+###############################
+LC_ADDRESS
+###############################
+
+postal_fmt   "\
+%f%N\
+%a%N\
+%d%N\
+%b%N\
+%s&t%h%t%e%t%r%N\
+%T%N\
+%c%N\
+%C%t%z%N"
+
+country_name "United States"
+country_ab2  "US"
+country_ab3  "USA"
+country_post "US"
+country_num  840
+country_car  "USA"
+country_isbn 0
+
+lang_name    "English"
+lang_ab      "en"
+lang_term    "eng"
+lang_lib     "eng"
+
+END LC_ADDRESS

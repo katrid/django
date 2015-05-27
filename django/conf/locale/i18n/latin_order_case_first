@@ -1,0 +1,915 @@
+#
+# Charset: UTF-8
+#
+#
+# This is an alphabetical collating sequence, treating case before diacritics
+#
+# The default iso14651_t1 sorting is (as I understood it) a four
+# step sorting tree:
+#    1st, it deals with the arbitrary order of the alphabet, placing
+# the character in its right relative position;
+#    2nd, it deals with the diacritic, placing the character in another
+# arbitrary order, seamingly the order of the Unicode Collation Algorithm;
+#    3rd, it deals with case, upper and lower;
+#    4th, the second diacritic, if any.
+#
+# That approach renders such a sorting:
+# aAáÁàÀbBcCçÇdD...nNñÑ...zZ...
+#
+# That mixing case sorting is somewhat weird for Portuguese, and many other
+# languages where the expected sorting would be:
+# aáà..AÁÀ...bBcçCÇdD...nñNÑ...zZ
+#
+# This is done by switching the order of evaluation between diacritic and case.
+#
+# As for languages that do have special characters that should be treated as
+# separate letters, such as Spanish, LC_COLLATE could be:
+#
+#       LC_COLLATE
+#       copy "latin_order_case_first"
+#       collating-symbol <enne>
+#       reorder-after <n>
+#       <enne>
+#       reorder-after <enne>
+#       <U00F1> <enne>;<MIN>;<TIL>;IGNORE # ñ
+#       <U00D1> <enne>;<CAP>;<TIL>;IGNORE # Ñ
+#       reorder-end
+#       END LC_COLLATE
+#
+# The effect of that being:
+# aáà...AÁÀ...bBcçCÇdD...nNñÑ...zZ
+#
+# I hope it helps others to have culturally correct ordering in databases, and
+# other situations.
+#
+
+###############################
+LC_COLLATE
+###############################
+
+#define DIACRIT_FORWARD
+
+copy "iso14651_t1"
+
+reorder-after <9>
+
+#
+# Letter A
+#
+<U0041> <a>;<CAP>;<BAS>;IGNORE # A
+<U00C0> <a>;<CAP>;<GRA>;IGNORE # À
+<U00C1> <a>;<CAP>;<ACA>;IGNORE # Á
+<U00C2> <a>;<CAP>;<CIR>;IGNORE # Â
+<U00C3> <a>;<CAP>;<TIL>;IGNORE # Ã
+<U00C4> <a>;<CAP>;<REU>;IGNORE # Ä
+<U00C5> <a>;<CAP>;<RNE>;IGNORE # Å
+<U0102> <a>;<CAP>;<BRE>;IGNORE # Ă
+<U0104> <a>;<CAP>;<OGO>;IGNORE # Ą
+<U0100> <a>;<CAP>;<MAC>;IGNORE # Ā
+<U01CD> <a>;<CAP>;<CAR>;IGNORE # Ǎ
+<U01DE> <a>;<CAP>;<REU>;<MAC>  # Ǟ
+<U01E0> <a>;<CAP>;<PCT>;<MAC>  # Ǡ
+<U01FA> <a>;<CAP>;<RNE>;<ACA>  # Ǻ
+<U0200> <a>;<CAP>;<DGR>;IGNORE # Ȁ
+<U0202> <a>;<CAP>;<IBR>;IGNORE # Ȃ
+<U0226> <a>;<CAP>;<PCT>;IGNORE # Ȧ
+<U1E00> <a>;<CAP>;<BRN>;IGNORE # Ḁ
+<U1EA0> <a>;<CAP>;<BPT>;IGNORE # Ạ
+<U1EA2> <a>;<CAP>;<HOK>;IGNORE # Ả
+<U1EA4> <a>;<CAP>;<CIR>;<ACA>  # Ấ
+<U1EA6> <a>;<CAP>;<CIR>;<GRA>  # Ầ
+<U1EA8> <a>;<CAP>;<CIR>;<HOK>  # Ẩ
+<U1EAA> <a>;<CAP>;<CIR>;<TIL>  # Ẫ
+<U1EAC> <a>;<CAP>;<CIR>;<BPT>  # Ậ
+<U1EAE> <a>;<CAP>;<BRE>;<ACA>  # Ắ
+<U1EB0> <a>;<CAP>;<BRE>;<GRA>  # Ằ
+<U1EB2> <a>;<CAP>;<BRE>;<HOK>  # Ẳ
+<U1EB4> <a>;<CAP>;<BRE>;<TIL>  # Ẵ
+<U1EB6> <a>;<CAP>;<BRE>;<BPT>  # Ặ
+<U00C6> "<a><e>";"<CAP><CAP>";"<LIG><LIG>";IGNORE # Æ
+<U01FC> "<a><e>";"<CAP><CAP>";"<LIG><LIG>";<ACA>  # Ǽ
+<U01E2> "<a><e>";"<CAP><CAP>";"<LIG><LIG>";<MAC>  # Ǣ
+
+#
+# Letter a
+#
+<U0061> <a>;<MIN>;<BAS>;IGNORE # a
+<U00AA> <a>;<EMI>;<PCL>;IGNORE # ª
+<U00E0> <a>;<MIN>;<GRA>;IGNORE # à
+<U00E1> <a>;<MIN>;<ACA>;IGNORE # á
+<U00E2> <a>;<MIN>;<CIR>;IGNORE # â
+<U00E3> <a>;<MIN>;<TIL>;IGNORE # ã
+<U00E4> <a>;<MIN>;<REU>;IGNORE # ä
+<U00E5> <a>;<MIN>;<RNE>;IGNORE # å
+<U0103> <a>;<MIN>;<BRE>;IGNORE # ă
+<U0105> <a>;<MIN>;<OGO>;IGNORE # ą
+<U0101> <a>;<MIN>;<MAC>;IGNORE # ā
+<U01CE> <a>;<MIN>;<CAR>;IGNORE # ǎ
+<U01DF> <a>;<MIN>;<REU>;<MAC>  # ǟ
+<U01E1> <a>;<MIN>;<PCT>;<MAC>  # ǡ
+<U01FB> <a>;<MIN>;<RNE>;<ACA>  # ǻ
+<U0201> <a>;<MIN>;<DGR>;IGNORE # ȁ
+<U0203> <a>;<MIN>;<IBR>;IGNORE # ȃ
+<U0227> <a>;<MIN>;<PCT>;IGNORE # ȧ
+<U1E01> <a>;<MIN>;<BRN>;IGNORE # ḁ
+<U1E9A> <a>;<MIN>;<PCL>;IGNORE # ẚ
+<U1EA1> <a>;<MIN>;<BPT>;IGNORE # ạ
+<U1EA3> <a>;<MIN>;<HOK>;IGNORE # ả
+<U1EA5> <a>;<MIN>;<CIR>;<ACA>  # ấ
+<U1EA7> <a>;<MIN>;<CIR>;<GRA>  # ầ
+<U1EA9> <a>;<MIN>;<CIR>;<HOK>  # ẩ
+<U1EAB> <a>;<MIN>;<CIR>;<TIL>  # ẫ
+<U1EAD> <a>;<MIN>;<CIR>;<BPT>  # ậ
+<U1EAF> <a>;<MIN>;<BRE>;<ACA>  # ắ
+<U1EB1> <a>;<MIN>;<BRE>;<GRA>  # ằ
+<U1EB3> <a>;<MIN>;<BRE>;<HOK>  # ẳ
+<U1EB5> <a>;<MIN>;<BRE>;<MAC>  # ẵ
+<U1EB7> <a>;<MIN>;<BRE>;<BPT>  # ặ
+<U00E6> "<a><e>";"<MIN><MIN>";"<LIG><LIG>";IGNORE # æ
+<U01FD> "<a><e>";"<MIN><MIN>";"<LIG><LIG>";<ACA>  # ǽ
+<U01E3> "<a><e>";"<MIN><MIN>";"<LIG><LIG>";<MAC>  # ǣ
+
+#
+# Letter B
+#
+<U0042> <b>;<CAP>;<BAS>;IGNORE # B
+<U1E02> <b>;<CAP>;<PCT>;IGNORE # Ḃ
+<U1E04> <b>;<CAP>;<BPT>;IGNORE # Ḅ
+<U1E06> <b>;<CAP>;<BMA>;IGNORE # Ḇ
+<U0181> <b>;<CAP>;<CRL>;IGNORE # Ɓ
+
+#
+# Letter b
+#
+<U0062> <b>;<MIN>;<BAS>;IGNORE # b
+<U0253> <b>;<MIN>;<CRL>;IGNORE # ɓ
+<U1E03> <b>;<MIN>;<PCT>;IGNORE # ḃ
+<U1E05> <b>;<MIN>;<BPT>;IGNORE # ḅ
+<U1E07> <b>;<MIN>;<BMA>;IGNORE # ḇ
+
+#
+# Letter C
+#
+<U0043> <c>;<CAP>;<BAS>;IGNORE # C
+<U00C7> <c>;<CAP>;<CDI>;IGNORE # Ç
+<U0106> <c>;<CAP>;<ACA>;IGNORE # Ć
+<U0108> <c>;<CAP>;<CIR>;IGNORE # Ĉ
+<U010C> <c>;<CAP>;<CAR>;IGNORE # Č
+<U010A> <c>;<CAP>;<PCT>;IGNORE # Ċ
+<U1E08> <c>;<CAP>;<CDI>;<ACA>  # Ḉ
+<U0187> <c>;<CAP>;<CRL>;IGNORE # Ƈ
+
+#
+# Letter c
+#
+<U0063> <c>;<MIN>;<BAS>;IGNORE # c
+<U00E7> <c>;<MIN>;<CDI>;IGNORE # ç
+<U0107> <c>;<MIN>;<ACA>;IGNORE # ć
+<U0109> <c>;<MIN>;<CIR>;IGNORE # ĉ
+<U010D> <c>;<MIN>;<CAR>;IGNORE # č
+<U010B> <c>;<MIN>;<PCT>;IGNORE # ċ
+<U0188> <c>;<MIN>;<CRL>;IGNORE # ƈ
+<U1E09> <c>;<MIN>;<CDI>;<ACA>  # ḉ
+
+#
+# Letter D
+#
+<U0044> <d>;<CAP>;<BAS>;IGNORE # D
+<U00D0> <d>;<CAP>;<PCL>;IGNORE # Ð
+<U010E> <d>;<CAP>;<CAR>;IGNORE # Ď
+<U0110> <d>;<CAP>;<OBL>;IGNORE # Đ
+<U1E0A> <d>;<CAP>;<PCT>;IGNORE # Ḋ
+<U1E0C> <d>;<CAP>;<BPT>;IGNORE # Ḍ
+<U1E0E> <d>;<CAP>;<BMA>;IGNORE # Ḏ
+<U1E10> <d>;<CAP>;<CDI>;IGNORE # Ḑ
+<U1E12> <d>;<CAP>;<BCI>;IGNORE # Ḓ
+<U018A> <d>;<CAP>;<CRL>;IGNORE # Ɗ
+<U01C4> "<d><z>";"<CAP><CAP>";"<BAS><CAR>";IGNORE # Ǆ
+<U01C5> "<d><z>";"<CAP><MIN>";"<BAS><CAR>";IGNORE # ǅ
+<U01F1> "<d><z>";"<CAP><CAP>";"<BAS><BAS>";IGNORE # Ǳ
+<U01F2> "<d><z>";"<CAP><MIN>";"<BAS><BAS>";IGNORE # ǲ
+
+#
+# Letter d
+#
+<U0064> <d>;<MIN>;<BAS>;IGNORE # d
+<U00F0> <d>;<MIN>;<PCL>;IGNORE # ð
+<U010F> <d>;<MIN>;<CAR>;IGNORE # ď
+<U0111> <d>;<MIN>;<OBL>;IGNORE # đ
+<U0256> <d>;<MIN>;<CRL>;IGNORE # ɖ
+<U0257> <d>;<MIN>;<CRL>;IGNORE # ɗ
+<U1E0B> <d>;<MIN>;<PCT>;IGNORE # ḋ
+<U1E0D> <d>;<MIN>;<BPT>;IGNORE # ḍ
+<U1E0F> <d>;<MIN>;<BMA>;IGNORE # ḏ
+<U1E11> <d>;<MIN>;<CDI>;IGNORE # ḑ
+<U1E13> <d>;<MIN>;<BCI>;IGNORE # ḓ
+<U01F3> "<d><z>";"<MIN><MIN>";"<BAS><BAS>";IGNORE # ǳ
+<U01C6> "<d><z>";"<MIN><MIN>";"<BAS><CAR>";IGNORE # ǆ
+
+#
+# Letter E
+#
+<U0045> <e>;<CAP>;<BAS>;IGNORE # E
+<U00C8> <e>;<CAP>;<GRA>;IGNORE # È
+<U00C9> <e>;<CAP>;<ACA>;IGNORE # É
+<U00CA> <e>;<CAP>;<CIR>;IGNORE # Ê
+<U00CB> <e>;<CAP>;<REU>;IGNORE # Ë
+<U011A> <e>;<CAP>;<CAR>;IGNORE # Ě
+<U0116> <e>;<CAP>;<PCT>;IGNORE # Ė
+<U0118> <e>;<CAP>;<OGO>;IGNORE # Ę
+<U0112> <e>;<CAP>;<MAC>;IGNORE # Ē
+<U0114> <e>;<CAP>;<BRE>;IGNORE # Ĕ
+<U0204> <e>;<CAP>;<DGR>;IGNORE # Ȅ
+<U0206> <e>;<CAP>;<IBR>;IGNORE # Ȇ
+<U0228> <e>;<CAP>;<CDI>;IGNORE # Ȩ
+<U1E14> <e>;<CAP>;<MAC>;<GRA>  # Ḕ
+<U1E16> <e>;<CAP>;<MAC>;<ACA>  # Ḗ
+<U1E18> <e>;<CAP>;<BCI>;IGNORE # Ḙ
+<U1E1A> <e>;<CAP>;<BTI>;IGNORE # Ḛ
+<U1E1C> <e>;<CAP>;<CDI>;<BRE>  # Ḝ
+<U1EB8> <e>;<CAP>;<BPT>;IGNORE # Ẹ
+<U1EBA> <e>;<CAP>;<HOK>;IGNORE # Ẻ
+<U1EBC> <e>;<CAP>;<TIL>;IGNORE # Ẽ
+<U1EBE> <e>;<CAP>;<CIR>;<ACA>  # Ế
+<U1EC0> <e>;<CAP>;<CIR>;<GRA>  # Ề
+<U1EC2> <e>;<CAP>;<CIR>;<HOK>  # Ể
+<U1EC4> <e>;<CAP>;<CIR>;<TIL>  # Ễ
+<U1EC6> <e>;<CAP>;<CIR>;<BPT>  # Ệ
+<U018E> <e>;<CAP>;<PCL>;IGNORE # Ǝ
+<U018F> <e>;<CAP>;<PCL>;IGNORE # Ə
+<U0190> <e>;<CAP>;<PCL>;IGNORE # Ɛ
+
+#
+# Letter e
+#
+<U0065> <e>;<MIN>;<BAS>;IGNORE # e
+<U00E8> <e>;<MIN>;<GRA>;IGNORE # è
+<U00E9> <e>;<MIN>;<ACA>;IGNORE # é
+<U00EA> <e>;<MIN>;<CIR>;IGNORE # ê
+<U00EB> <e>;<MIN>;<REU>;IGNORE # ë
+<U0113> <e>;<MIN>;<MAC>;IGNORE # ē
+<U0115> <e>;<MIN>;<BRE>;IGNORE # ĕ
+<U0117> <e>;<MIN>;<PCT>;IGNORE # ė
+<U0119> <e>;<MIN>;<OGO>;IGNORE # ę
+<U011B> <e>;<MIN>;<CAR>;IGNORE # ě
+<U0205> <e>;<MIN>;<DGR>;IGNORE # ȅ
+<U0207> <e>;<MIN>;<IBR>;IGNORE # ȇ
+<U0229> <e>;<MIN>;<CDI>;IGNORE # ȩ
+<U1E15> <e>;<MIN>;<MAC>;<GRA>  # ḕ
+<U1E17> <e>;<MIN>;<MAC>;<ACA>  # ḗ
+<U1E19> <e>;<MIN>;<BCI>;IGNORE # ḙ
+<U1E1B> <e>;<MIN>;<BTI>;IGNORE # ḛ
+<U1E1D> <e>;<MIN>;<CDI>;<BRE>  # ḝ
+<U1EB9> <e>;<MIN>;<BPT>;IGNORE # ẹ
+<U1EBB> <e>;<MIN>;<HOK>;IGNORE # ẻ
+<U1EBD> <e>;<MIN>;<TIL>;IGNORE # ẽ
+<U1EBF> <e>;<MIN>;<CIR>;<ACA>  # ế
+<U1EC1> <e>;<MIN>;<CIR>;<GRA>  # ề
+<U1EC3> <e>;<MIN>;<CIR>;<HOK>  # ể
+<U1EC5> <e>;<MIN>;<CIR>;<TIL>  # ễ
+<U1EC7> <e>;<MIN>;<CIR>;<BPT>  # ệ
+<U01DD> <e>;<MIN>;<PCL>;IGNORE # ǝ
+<U0259> <e>;<MIN>;<PCL>;IGNORE # ə
+<U025B> <e>;<MIN>;<PCL>;IGNORE # ɛ
+
+#
+# Letter F
+#
+<U0046> <f>;<CAP>;<BAS>;IGNORE # F
+<U1E1E> <f>;<CAP>;<PCT>;IGNORE # Ḟ
+
+#
+# Letter f
+#
+<U0066> <f>;<MIN>;<BAS>;IGNORE # f
+<U1E1F> <f>;<MIN>;<PCT>;IGNORE # ḟ
+
+#
+# Letter G
+#
+<U0047> <g>;<CAP>;<BAS>;IGNORE # G
+<U011E> <g>;<CAP>;<BRE>;IGNORE # Ğ
+<U011C> <g>;<CAP>;<CIR>;IGNORE # Ĝ
+<U0120> <g>;<CAP>;<PCT>;IGNORE # Ġ
+<U0122> <g>;<CAP>;<CDI>;IGNORE # Ģ
+<U01E4> <g>;<CAP>;<OBL>;IGNORE # Ǥ
+<U01E6> <g>;<CAP>;<CAR>;IGNORE # Ǧ
+<U01F4> <g>;<CAP>;<ACA>;IGNORE # Ǵ
+<U1E20> <g>;<CAP>;<MAC>;IGNORE # Ḡ
+<U0193> <g>;<CAP>;<CRL>;IGNORE # Ɠ
+<U01A2> <g>;<CAP>;<PCL>;IGNORE # Ƣ
+
+#
+# Letter g
+#
+<U0067> <g>;<MIN>;<BAS>;IGNORE # g
+<U011F> <g>;<MIN>;<BRE>;IGNORE # ğ
+<U011D> <g>;<MIN>;<CIR>;IGNORE # ĝ
+<U0121> <g>;<MIN>;<PCT>;IGNORE # ġ
+<U0123> <g>;<MIN>;<CDI>;IGNORE # ģ
+<U01E5> <g>;<MIN>;<OBL>;IGNORE # ǥ
+<U01E7> <g>;<MIN>;<CAR>;IGNORE # ǧ
+<U01F5> <g>;<MIN>;<ACA>;IGNORE # ǵ
+<U1E21> <g>;<MIN>;<MAC>;IGNORE # ḡ
+<U0260> <g>;<MIN>;<CRL>;IGNORE # ɠ
+<U01A3> <g>;<MIN>;<PCL>;IGNORE # ƣ
+
+#
+# Letter H
+#
+<U0048> <h>;<CAP>;<BAS>;IGNORE # H
+<U0124> <h>;<CAP>;<CIR>;IGNORE # Ĥ
+<U0126> <h>;<CAP>;<OBL>;IGNORE # Ħ
+<U021E> <h>;<CAP>;<CAR>;IGNORE # Ȟ
+<U1E22> <h>;<CAP>;<PCT>;IGNORE # Ḣ
+<U1E24> <h>;<CAP>;<BPT>;IGNORE # Ḥ
+<U1E26> <h>;<CAP>;<REU>;IGNORE # Ḧ
+<U1E28> <h>;<CAP>;<CDI>;IGNORE # Ḩ
+<U1E2A> <h>;<CAP>;<BBR>;IGNORE # Ḫ
+<U01F6> "<h><v>";"<CAP><CAP>";"<LIG><LIG>";IGNORE # Ƕ
+
+#
+# Letter h
+#
+<U0068> <h>;<MIN>;<BAS>;IGNORE # h
+<U0125> <h>;<MIN>;<CIR>;IGNORE # ĥ
+<U0127> <h>;<MIN>;<OBL>;IGNORE # ħ
+<U021F> <h>;<MIN>;<CAR>;IGNORE # ȟ
+<U1E23> <h>;<MIN>;<PCT>;IGNORE # ḣ
+<U1E25> <h>;<MIN>;<BPT>;IGNORE # ḥ
+<U1E27> <h>;<MIN>;<REU>;IGNORE # ḧ
+<U1E29> <h>;<MIN>;<CDI>;IGNORE # ḩ
+<U1E2B> <h>;<MIN>;<BBR>;IGNORE # ḫ
+<U1E96> <h>;<MIN>;<BMA>;IGNORE # ẖ
+<U0195> "<h><v>";"<MIN><MIN>";"<LIG><LIG>";IGNORE # ƕ
+
+#
+# Letter I
+#
+<U0049> <i>;<CAP>;<BAS>;IGNORE # I
+<U00CE> <i>;<CAP>;<CIR>;IGNORE # Î
+<U00CC> <i>;<CAP>;<GRA>;IGNORE # Ì
+<U00CD> <i>;<CAP>;<ACA>;IGNORE # Í
+<U0128> <i>;<CAP>;<TIL>;IGNORE # Ĩ
+<U00CF> <i>;<CAP>;<REU>;IGNORE # Ï
+<U0130> <i>;<CAP>;<PCL>;IGNORE # İ
+<U012E> <i>;<CAP>;<OGO>;IGNORE # Į
+<U012A> <i>;<CAP>;<MAC>;IGNORE # Ī
+<U012C> <i>;<CAP>;<BRE>;IGNORE # Ĭ
+<U01CF> <i>;<CAP>;<CAR>;IGNORE # Ǐ
+<U0208> <i>;<CAP>;<DGR>;IGNORE # Ȉ
+<U020A> <i>;<CAP>;<IBR>;IGNORE # Ȋ
+<U1E2C> <i>;<CAP>;<BTI>;IGNORE # Ḭ
+<U1E2E> <i>;<CAP>;<REU>;<ACA>  # Ḯ
+<U1EC8> <i>;<CAP>;<HOK>;IGNORE # Ỉ
+<U1ECA> <i>;<CAP>;<BPT>;IGNORE # Ị
+<U0132> "<i><j>";"<CAP><CAP>";"<BAS><BAS>";IGNORE # Ĳ
+
+#
+# Letter i
+#
+<U0069> <i>;<MIN>;<BAS>;IGNORE # i
+<U00EE> <i>;<MIN>;<CIR>;IGNORE # î
+<U00EC> <i>;<MIN>;<GRA>;IGNORE # ì
+<U00ED> <i>;<MIN>;<ACA>;IGNORE # í
+<U0129> <i>;<MIN>;<TIL>;IGNORE # ĩ
+<U00EF> <i>;<MIN>;<REU>;IGNORE # ï
+<U0131> <i>;<MIN>;<PCL>;IGNORE # ı
+<U012F> <i>;<MIN>;<OGO>;IGNORE # į
+<U012B> <i>;<MIN>;<MAC>;IGNORE # ī
+<U012D> <i>;<MIN>;<BRE>;IGNORE # ĭ
+<U01D0> <i>;<MIN>;<CAR>;IGNORE # ǐ
+<U0209> <i>;<MIN>;<DGR>;IGNORE # ȉ
+<U020B> <i>;<MIN>;<IBR>;IGNORE # ȋ
+<U1E2D> <i>;<MIN>;<BTI>;IGNORE # ḭ
+<U1E2F> <i>;<MIN>;<REU>;<ACA>  # ḯ
+<U1EC9> <i>;<MIN>;<HOK>;IGNORE # ỉ
+<U1ECB> <i>;<MIN>;<BPT>;IGNORE # ị
+<U0133> "<i><j>";"<MIN><MIN>";"<BAS><BAS>";IGNORE # ĳ
+
+#
+# Letter J
+#
+<U004A> <j>;<CAP>;<BAS>;IGNORE # J
+<U0134> <j>;<CAP>;<CIR>;IGNORE # Ĵ
+
+#
+# Letter j
+#
+<U006A> <j>;<MIN>;<BAS>;IGNORE # j
+<U0135> <j>;<MIN>;<CIR>;IGNORE # ĵ
+<U01F0> <j>;<MIN>;<CAR>;IGNORE # ǰ
+
+#
+# Letter K
+#
+<U004B> <k>;<CAP>;<BAS>;IGNORE # K
+<U0136> <k>;<CAP>;<CDI>;IGNORE # Ķ
+<U01E8> <k>;<CAP>;<CAR>;IGNORE # Ǩ
+<U1E30> <k>;<CAP>;<ACA>;IGNORE # Ḱ
+<U1E32> <k>;<CAP>;<BPT>;IGNORE # Ḳ
+<U1E34> <k>;<CAP>;<BMA>;IGNORE # Ḵ
+<U0198> <k>;<CAP>;<CRL>;IGNORE # Ƙ
+
+#
+# Letter k
+#
+<U006B> <k>;<MIN>;<BAS>;IGNORE # k
+<U0137> <k>;<MIN>;<CDI>;IGNORE # ķ
+<U01E9> <k>;<MIN>;<CAR>;IGNORE # ǩ
+<U1E31> <k>;<MIN>;<ACA>;IGNORE # ḱ
+<U1E33> <k>;<MIN>;<BPT>;IGNORE # ḳ
+<U1E35> <k>;<MIN>;<BMA>;IGNORE # ḵ
+<U0199> <k>;<MIN>;<CRL>;IGNORE # ƙ
+
+#
+# Letter L
+#
+<U004C> <l>;<CAP>;<BAS>;IGNORE # L
+<U0139> <l>;<CAP>;<ACA>;IGNORE # Ĺ
+<U013D> <l>;<CAP>;<CAR>;IGNORE # Ľ
+<U0141> <l>;<CAP>;<OBL>;IGNORE # Ł
+<U013B> <l>;<CAP>;<CDI>;IGNORE # Ļ
+<U1E36> <l>;<CAP>;<BPT>;IGNORE # Ḷ
+<U1E38> <l>;<CAP>;<BPT>;<MAC>  # Ḹ
+<U1E3A> <l>;<CAP>;<BMA>;IGNORE # Ḻ
+<U1E3C> <l>;<CAP>;<BCI>;IGNORE # Ḽ
+<U013F> <l>;<CAP>;<PCT>;IGNORE # Ŀ
+<U01C7> "<l><j>";"<CAP><CAP>";"<BAS><BAS>";IGNORE # Ǉ
+<U01C8> "<l><j>";"<CAP><MIN>";"<BAS><BAS>";IGNORE # ǈ
+
+#
+# Letter l
+#
+<U006C> <l>;<MIN>;<BAS>;IGNORE # l
+<U013A> <l>;<MIN>;<ACA>;IGNORE # ĺ
+<U013E> <l>;<MIN>;<CAR>;IGNORE # ľ
+<U0142> <l>;<MIN>;<OBL>;IGNORE # ł
+<U013C> <l>;<MIN>;<CDI>;IGNORE # ļ
+<U1E37> <l>;<MIN>;<BPT>;IGNORE # ḷ
+<U1E39> <l>;<MIN>;<BPT>;<MAC>  # ḹ
+<U1E3B> <l>;<MIN>;<BMA>;IGNORE # ḻ
+<U1E3D> <l>;<MIN>;<BCI>;IGNORE # ḽ
+<U0140> <l>;<MIN>;<PCT>;IGNORE # ŀ
+<U01C9> "<l><j>";"<MIN><MIN>";"<BAS><BAS>";IGNORE # ǉ
+
+#
+# Letter M
+#
+<U004D> <m>;<CAP>;<BAS>;IGNORE # M
+<U1E3E> <m>;<CAP>;<ACA>;IGNORE # Ḿ
+<U1E40> <m>;<CAP>;<PCT>;IGNORE # Ṁ
+<U1E42> <m>;<CAP>;<BPT>;IGNORE # Ṃ
+
+#
+# Letter m
+#
+<U006D> <m>;<MIN>;<BAS>;IGNORE # m
+<U1E3F> <m>;<MIN>;<ACA>;IGNORE # ḿ
+<U1E41> <m>;<MIN>;<PCT>;IGNORE # ṁ
+<U1E43> <m>;<MIN>;<BPT>;IGNORE # ṃ
+
+#
+# Letter N
+#
+<U004E> <n>;<CAP>;<BAS>;IGNORE # N
+<U00D1> <n>;<CAP>;<TIL>;IGNORE # Ñ
+<U0143> <n>;<CAP>;<ACA>;IGNORE # Ń
+<U0147> <n>;<CAP>;<CAR>;IGNORE # Ň
+<U0145> <n>;<CAP>;<CDI>;IGNORE # Ņ
+<U01F8> <n>;<CAP>;<GRA>;IGNORE # Ǹ
+<U1E44> <n>;<CAP>;<PCT>;IGNORE # Ṅ
+<U1E46> <n>;<CAP>;<BPT>;IGNORE # Ṇ
+<U1E48> <n>;<CAP>;<BMA>;IGNORE # Ṉ
+<U1E4A> <n>;<CAP>;<BCI>;IGNORE # Ṋ
+<U014A> "<n><g>";"<CAP><CAP>";"<LIG><LIG>";IGNORE # Ŋ
+<U01CA> "<n><j>";"<CAP><CAP>";"<BAS><BAS>";IGNORE # Ǌ
+<U01CB> "<n><j>";"<CAP><MIN>";"<BAS><BAS>";IGNORE # ǋ
+
+#
+# Letter n
+#
+<U006E> <n>;<MIN>;<BAS>;IGNORE # n
+<U00F1> <n>;<MIN>;<TIL>;IGNORE # ñ
+<U0149> <n>;<MIN>;<PCL>;IGNORE # ŉ
+<U0144> <n>;<MIN>;<ACA>;IGNORE # ń
+<U0148> <n>;<MIN>;<CAR>;IGNORE # ň
+<U0146> <n>;<MIN>;<CDI>;IGNORE # ņ
+<U01F9> <n>;<MIN>;<GRA>;IGNORE # ǹ
+<U1E45> <n>;<MIN>;<PCT>;IGNORE # ṅ
+<U1E47> <n>;<MIN>;<BPT>;IGNORE # ṇ
+<U1E49> <n>;<MIN>;<BMA>;IGNORE # ṉ
+<U1E4B> <n>;<MIN>;<BCI>;IGNORE # ṋ
+<U014B> "<n><g>";"<MIN><MIN>";"<LIG><LIG>";IGNORE # ŋ
+<U01CC> "<n><j>";"<MIN><MIN>";"<BAS><BAS>";IGNORE # ǌ
+
+#
+# Letter O
+#
+<U004F> <o>;<CAP>;<BAS>;IGNORE # O
+<U00D4> <o>;<CAP>;<CIR>;IGNORE # Ô
+<U00D2> <o>;<CAP>;<GRA>;IGNORE # Ò
+<U00D3> <o>;<CAP>;<ACA>;IGNORE # Ó
+<U00D5> <o>;<CAP>;<TIL>;IGNORE # Õ
+<U00D6> <o>;<CAP>;<REU>;IGNORE # Ö
+<U00D8> <o>;<CAP>;<OBL>;IGNORE # Ø
+<U0150> <o>;<CAP>;<DAC>;IGNORE # Ő
+<U014C> <o>;<CAP>;<MAC>;IGNORE # Ō
+<U014E> <o>;<CAP>;<BRE>;IGNORE # Ŏ
+<U01A0> <o>;<CAP>;<CRL>;IGNORE # Ơ
+<U01D1> <o>;<CAP>;<CAR>;IGNORE # Ǒ
+<U01EA> <o>;<CAP>;<OGO>;IGNORE # Ǫ
+<U01EC> <o>;<CAP>;<OGO>;<MAC>  # Ǭ
+<U01FE> <o>;<CAP>;<OBL>;<ACA>  # Ǿ
+<U020C> <o>;<CAP>;<DGR>;IGNORE # Ȍ
+<U020E> <o>;<CAP>;<IBR>;IGNORE # Ȏ
+<U022A> <o>;<CAP>;<REU>;<MAC>  # Ȫ
+<U022C> <o>;<CAP>;<TIL>;<MAC>  # Ȭ
+<U022E> <o>;<CAP>;<PCT>;IGNORE # Ȯ
+<U0230> <o>;<CAP>;<PCT>;<MAC>  # Ȱ
+<U1E4C> <o>;<CAP>;<TIL>;<ACA>  # Ṍ
+<U1E4E> <o>;<CAP>;<TIL>;<REU>  # Ṏ
+<U1E50> <o>;<CAP>;<MAC>;<GRA>  # Ṑ
+<U1E52> <o>;<CAP>;<MAC>;<ACA>  # Ṓ
+<U1ECC> <o>;<CAP>;<BPT>;IGNORE # Ọ
+<U1ECE> <o>;<CAP>;<HOK>;IGNORE # Ỏ
+<U1ED0> <o>;<CAP>;<CIR>;<ACA>  # Ố
+<U1ED2> <o>;<CAP>;<CIR>;<GRA>  # Ồ
+<U1ED4> <o>;<CAP>;<CIR>;<HOK>  # Ổ
+<U1ED6> <o>;<CAP>;<CIR>;<TIL>  # Ỗ
+<U1ED8> <o>;<CAP>;<CIR>;<BPT>  # Ộ
+<U1EDA> <o>;<CAP>;<CRL>;<ACA>  # Ớ
+<U1EDC> <o>;<CAP>;<CRL>;<GRA>  # Ờ
+<U1EDE> <o>;<CAP>;<CRL>;<HOK>  # Ở
+<U1EE0> <o>;<CAP>;<CRL>;<TIL>  # Ỡ
+<U1EE2> <o>;<CAP>;<CRL>;<BPT>  # Ợ
+<U019F> <o>;<CAP>;<REU>;IGNORE # ɵ # ɵ as it is often syn. of Ö
+<U0186> <o>;<CAP>;<PCL>;IGNORE # ɔ
+<U0152> "<o><e>";"<CAP><CAP>";"<LIG><LIG>";IGNORE # Œ
+
+#
+# Letter o
+#
+<U006F> <o>;<MIN>;<BAS>;IGNORE # o
+<U00BA> <o>;<EMI>;<PCL>;IGNORE # º
+<U00F4> <o>;<MIN>;<CIR>;IGNORE # ô
+<U00F2> <o>;<MIN>;<GRA>;IGNORE # ò
+<U00F3> <o>;<MIN>;<ACA>;IGNORE # ó
+<U00F5> <o>;<MIN>;<TIL>;IGNORE # õ
+<U00F6> <o>;<MIN>;<REU>;IGNORE # ö
+<U00F8> <o>;<MIN>;<OBL>;IGNORE # ø
+<U0151> <o>;<MIN>;<DAC>;IGNORE # ő
+<U014D> <o>;<MIN>;<MAC>;IGNORE # ō
+<U014F> <o>;<MIN>;<BRE>;IGNORE # ŏ
+<U01A1> <o>;<MIN>;<CRL>;IGNORE # ơ
+<U01D2> <o>;<MIN>;<CAR>;IGNORE # ǒ
+<U01EB> <o>;<MIN>;<OGO>;IGNORE # ǫ
+<U01ED> <o>;<MIN>;<OGO>;<MAC>  # ǭ
+<U01FF> <o>;<MIN>;<OBL>;<ACA>  # ǿ
+<U020D> <o>;<MIN>;<DGR>;IGNORE # ȍ
+<U020F> <o>;<MIN>;<IBR>;IGNORE # ȏ
+<U022B> <o>;<MIN>;<REU>;<MAC>  # ȫ
+<U022D> <o>;<MIN>;<TIL>;<MAC>  # ȭ
+<U022F> <o>;<MIN>;<PCT>;IGNORE # ȯ
+<U0231> <o>;<MIN>;<PCT>;<MAC>  # ȱ
+<U1E4D> <o>;<MIN>;<TIL>;<ACA>  # ṍ
+<U1E4F> <o>;<MIN>;<TIL>;<REU>  # ṏ
+<U1E51> <o>;<MIN>;<MAC>;<GRA>  # ṑ
+<U1E53> <o>;<MIN>;<MAC>;<ACA>  # ṓ
+<U1ECD> <o>;<MIN>;<BPT>;IGNORE # ọ
+<U1ECF> <o>;<MIN>;<HOK>;IGNORE # ỏ
+<U1ED1> <o>;<MIN>;<CIR>;<ACA>  # ố
+<U1ED3> <o>;<MIN>;<CIR>;<GRA>  # ồ
+<U1ED5> <o>;<MIN>;<CIR>;<HOK>  # ổ
+<U1ED7> <o>;<MIN>;<CIR>;<TIL>  # ỗ
+<U1ED9> <o>;<MIN>;<CIR>;<BPT>  # ộ
+<U1EDB> <o>;<MIN>;<CRL>;<ACA>  # ớ
+<U1EDD> <o>;<MIN>;<CRL>;<GRA>  # ờ
+<U1EDF> <o>;<MIN>;<CRL>;<HOK>  # ở
+<U1EE1> <o>;<MIN>;<CRL>;<TIL>  # ỡ
+<U1EE3> <o>;<MIN>;<CRL>;<BPT>  # ợ
+<U0275> <o>;<MIN>;<REU>;IGNORE # ɵ # ɵ as it is often syn. of ö
+<U0254> <o>;<MIN>;<PCL>;IGNORE # ɔ
+<U0153> "<o><e>";"<MIN><MIN>";"<LIG><LIG>";IGNORE # œ
+
+#
+# Letter P
+#
+<U0050> <p>;<CAP>;<BAS>;IGNORE # P
+<U1E54> <p>;<CAP>;<ACA>;IGNORE # Ṕ
+<U1E56> <p>;<CAP>;<PCT>;IGNORE # Ṗ
+
+#
+# Letter p
+#
+<U0070> <p>;<MIN>;<BAS>;IGNORE # p
+<U1E55> <p>;<MIN>;<ACA>;IGNORE # ṕ
+<U1E57> <p>;<MIN>;<PCT>;IGNORE # ṗ
+
+#
+# Letter Q
+#
+<U0051> <q>;<CAP>;<BAS>;IGNORE # Q
+
+#
+# Letter q
+#
+<U0071> <q>;<MIN>;<BAS>;IGNORE # q
+<U0138> <q>;<MIN>;<PCL>;IGNORE # ĸ
+
+
+#
+# Letter R
+#
+<U0052> <r>;<CAP>;<BAS>;IGNORE # R
+<U0154> <r>;<CAP>;<ACA>;IGNORE # Ŕ
+<U0158> <r>;<CAP>;<CAR>;IGNORE # Ř
+<U0156> <r>;<CAP>;<CDI>;IGNORE # Ŗ
+<U0210> <r>;<CAP>;<DGR>;IGNORE # Ȑ
+<U0212> <r>;<CAP>;<IBR>;IGNORE # Ȓ
+<U1E58> <r>;<CAP>;<PCT>;IGNORE # Ṙ
+<U1E5A> <r>;<CAP>;<BPT>;IGNORE # Ṛ
+<U1E5C> <r>;<CAP>;<BPT>;<MAC>  # Ṝ
+<U1E5E> <r>;<CAP>;<BMA>;IGNORE # Ṟ
+
+#
+# Letter r
+#
+<U0072> <r>;<MIN>;<BAS>;IGNORE # r
+<U0155> <r>;<MIN>;<ACA>;IGNORE # ŕ
+<U0159> <r>;<MIN>;<CAR>;IGNORE # ř
+<U0157> <r>;<MIN>;<CDI>;IGNORE # ŗ
+<U0211> <r>;<MIN>;<DGR>;IGNORE # ȑ
+<U0213> <r>;<MIN>;<IBR>;IGNORE # ȓ
+<U1E59> <r>;<MIN>;<PCT>;IGNORE # ṙ
+<U1E5B> <r>;<MIN>;<BPT>;IGNORE # ṛ
+<U1E5D> <r>;<MIN>;<BPT>;<MAC>  # ṝ
+<U1E5F> <r>;<MIN>;<BMA>;IGNORE # ṟ
+
+#
+# Letter S
+#
+<U0053> <s>;<CAP>;<BAS>;IGNORE # S
+<U015A> <s>;<CAP>;<ACA>;IGNORE # Ś
+<U015C> <s>;<CAP>;<CIR>;IGNORE # Ŝ
+<U0160> <s>;<CAP>;<CAR>;IGNORE # Š
+<U015E> <s>;<CAP>;<CDI>;IGNORE # Ş
+<U0218> <s>;<CAP>;<CDI>;IGNORE # Ș
+<U1E60> <s>;<CAP>;<PCT>;IGNORE # Ṡ
+<U1E62> <s>;<CAP>;<BPT>;IGNORE # Ṣ
+<U1E64> <s>;<CAP>;<ACA>;<PCT>  # Ṥ
+<U1E66> <s>;<CAP>;<CAR>;<PCT>  # Ṧ
+<U1E68> <s>;<CAP>;<BPT>;<PCT>  # Ṩ
+<U1E9E> "<s><s>";"<CAP><CAP>";"<LIG><LIG>";IGNORE # ß
+
+#
+# Letter s
+#
+<U0073> <s>;<MIN>;<BAS>;IGNORE # s
+<U015B> <s>;<MIN>;<ACA>;IGNORE # ś
+<U015D> <s>;<MIN>;<CIR>;IGNORE # ŝ
+<U0161> <s>;<MIN>;<CAR>;IGNORE # š
+<U015F> <s>;<MIN>;<CDI>;IGNORE # ş
+<U0219> <s>;<MIN>;<CDI>;IGNORE # ș
+<U1E61> <s>;<MIN>;<PCT>;IGNORE # ṡ
+<U1E63> <s>;<MIN>;<BPT>;IGNORE # ṣ
+<U1E65> <s>;<MIN>;<ACA>;<PCT>  # ṥ
+<U1E67> <s>;<MIN>;<CAR>;<PCT>  # ṧ
+<U1E69> <s>;<MIN>;<BPT>;<PCT>  # ṩ
+<U017F> <s>;<MIN>;<PCL>;IGNORE # ſ
+<U1E9B> <s>;<MIN>;<PCL>;<PCT>  # ẛ
+<U00DF> "<s><s>";"<MIN><MIN>";"<LIG><LIG>";IGNORE # ß
+
+#
+# Letter T
+#
+<U0054> <t>;<CAP>;<BAS>;IGNORE # T
+<U0164> <t>;<CAP>;<CAR>;IGNORE # Ť
+<U0166> <t>;<CAP>;<OBL>;IGNORE # Ŧ
+<U0162> <t>;<CAP>;<CDI>;IGNORE # Ţ
+<U021A> <t>;<CAP>;<CDI>;IGNORE # Ț
+<U1E6A> <t>;<CAP>;<PCT>;IGNORE # Ṫ
+<U1E6C> <t>;<CAP>;<BPT>;IGNORE # Ṭ
+<U1E6E> <t>;<CAP>;<BMA>;IGNORE # Ṯ
+<U1E70> <t>;<CAP>;<BCI>;IGNORE # Ṱ
+
+#
+# Letter t
+#
+<U0074> <t>;<MIN>;<BAS>;IGNORE # t
+<U0165> <t>;<MIN>;<CAR>;IGNORE # ť
+<U0167> <t>;<MIN>;<OBL>;IGNORE # ŧ
+<U0163> <t>;<MIN>;<CDI>;IGNORE # ţ
+<U021B> <t>;<MIN>;<CDI>;IGNORE # ț
+<U1E6B> <t>;<MIN>;<PCT>;IGNORE # ṫ
+<U1E6D> <t>;<MIN>;<BPT>;IGNORE # ṭ
+<U1E6F> <t>;<MIN>;<BMA>;IGNORE # ṯ
+<U1E71> <t>;<MIN>;<BCI>;IGNORE # ṱ
+<U1E97> <t>;<MIN>;<REU>;IGNORE # ẗ
+
+#
+# Letter U
+#
+<U0055> <u>;<CAP>;<BAS>;IGNORE # U
+<U00DB> <u>;<CAP>;<CIR>;IGNORE # Û
+<U00D9> <u>;<CAP>;<GRA>;IGNORE # Ù
+<U00DA> <u>;<CAP>;<ACA>;IGNORE # Ú
+<U0168> <u>;<CAP>;<TIL>;IGNORE # Ũ
+<U00DC> <u>;<CAP>;<REU>;IGNORE # Ü
+<U016C> <u>;<CAP>;<BRE>;IGNORE # Ŭ
+<U016E> <u>;<CAP>;<RNE>;IGNORE # Ů
+<U0170> <u>;<CAP>;<DAC>;IGNORE # Ű
+<U0172> <u>;<CAP>;<OGO>;IGNORE # Ų
+<U016A> <u>;<CAP>;<MAC>;IGNORE # Ū
+<U01AF> <u>;<CAP>;<CRL>;IGNORE # Ư
+<U01D3> <u>;<CAP>;<CAR>;IGNORE # Ǔ
+<U01D5> <u>;<CAP>;<REU>;<MAC>  # Ǖ
+<U01D7> <u>;<CAP>;<REU>;<ACA>  # Ǘ
+<U01D9> <u>;<CAP>;<REU>;<CAR>  # Ǚ
+<U01DB> <u>;<CAP>;<REU>;<GRA>  # Ǜ
+<U1E72> <u>;<CAP>;<BRU>;IGNORE # Ṳ
+<U1E74> <u>;<CAP>;<BTI>;IGNORE # Ṵ
+<U1E76> <u>;<CAP>;<BCI>;IGNORE # Ṷ
+<U1E78> <u>;<CAP>;<TIL>;<ACA>  # Ṹ
+<U1E7A> <u>;<CAP>;<MAC>;<REU>  # Ṻ
+<U1EE4> <u>;<CAP>;<BPT>;IGNORE # Ụ
+<U1EE6> <u>;<CAP>;<HOK>;IGNORE # Ủ
+<U1EE8> <u>;<CAP>;<CRL>;<ACA>  # Ứ
+<U1EEA> <u>;<CAP>;<CRL>;<GRA>  # Ừ
+<U1EEC> <u>;<CAP>;<CRL>;<HOK>  # Ử
+<U1EEE> <u>;<CAP>;<CRL>;<TIL>  # Ữ
+<U1EF0> <u>;<CAP>;<CRL>;<BPT>  # Ự
+
+#
+# Letter u
+#
+<U0075> <u>;<MIN>;<BAS>;IGNORE # u
+<U00FB> <u>;<MIN>;<CIR>;IGNORE # û
+<U00F9> <u>;<MIN>;<GRA>;IGNORE # ù
+<U00FA> <u>;<MIN>;<ACA>;IGNORE # ú
+<U0169> <u>;<MIN>;<TIL>;IGNORE # ũ
+<U00FC> <u>;<MIN>;<REU>;IGNORE # ü
+<U016D> <u>;<MIN>;<BRE>;IGNORE # ŭ
+<U016F> <u>;<MIN>;<RNE>;IGNORE # ů
+<U0171> <u>;<MIN>;<DAC>;IGNORE # ű
+<U0173> <u>;<MIN>;<OGO>;IGNORE # ų
+<U016B> <u>;<MIN>;<MAC>;IGNORE # ū
+<U01B0> <u>;<MIN>;<CRL>;IGNORE # ư
+<U01D4> <u>;<MIN>;<CAR>;IGNORE # ǔ
+<U01D6> <u>;<MIN>;<REU>;<MAC>  # ǖ
+<U01D8> <u>;<MIN>;<REU>;<ACA>  # ǘ
+<U01DA> <u>;<MIN>;<REU>;<CAR>  # ǚ
+<U01DC> <u>;<MIN>;<REU>;<GRA>  # ǜ
+<U0215> <u>;<MIN>;<DGR>;IGNORE # ȕ
+<U0217> <u>;<MIN>;<IBR>;IGNORE # ȗ
+<U1E73> <u>;<MIN>;<BRU>;IGNORE # ṳ
+<U1E75> <u>;<MIN>;<BTI>;IGNORE # ṵ
+<U1E77> <u>;<MIN>;<BCI>;IGNORE # ṷ
+<U1E79> <u>;<MIN>;<TIL>;<ACA>  # ṹ
+<U1E7B> <u>;<MIN>;<MAC>;<REU>  # ṻ
+<U1EE5> <u>;<MIN>;<BPT>;IGNORE # ụ
+<U1EE7> <u>;<MIN>;<HOK>;IGNORE # ủ
+<U1EE9> <u>;<MIN>;<CRL>;<ACA>  # ứ
+<U1EEB> <u>;<MIN>;<CRL>;<GRA>  # ừ
+<U1EED> <u>;<MIN>;<CRL>;<HOK>  # ử
+<U1EEF> <u>;<MIN>;<CRL>;<TIL>  # ữ
+<U1EF1> <u>;<MIN>;<CRL>;<BPT>  # ự
+
+#
+# Letter V
+#
+<U0056> <v>;<CAP>;<BAS>;IGNORE # V
+<U1E7C> <v>;<CAP>;<TIL>;IGNORE # Ṽ
+<U1E7E> <v>;<CAP>;<BPT>;IGNORE # Ṿ
+
+#
+# Letter v
+#
+<U0076> <v>;<MIN>;<BAS>;IGNORE # v
+<U1E7D> <v>;<MIN>;<TIL>;IGNORE # ṽ
+<U1E7F> <v>;<MIN>;<BPT>;IGNORE # ṿ
+
+
+#
+# Letter W
+#
+<U0057> <w>;<CAP>;<BAS>;IGNORE # W
+<U0174> <w>;<CAP>;<CIR>;IGNORE # Ŵ
+<U1E80> <w>;<CAP>;<GRA>;IGNORE # Ẁ
+<U1E82> <w>;<CAP>;<ACA>;IGNORE # Ẃ
+<U1E84> <w>;<CAP>;<REU>;IGNORE # Ẅ
+<U1E86> <w>;<CAP>;<PCT>;IGNORE # Ẇ
+<U1E88> <w>;<CAP>;<BPT>;IGNORE # Ẉ
+<U01F7> <w>;<CAP>;<PCL>;IGNORE # Ƿ
+
+#
+# Letter w
+#
+<U0077> <w>;<MIN>;<BAS>;IGNORE # w
+<U0175> <w>;<MIN>;<CIR>;IGNORE # ŵ
+<U1E81> <w>;<MIN>;<GRA>;IGNORE # ẁ
+<U1E83> <w>;<MIN>;<ACA>;IGNORE # ẃ
+<U1E85> <w>;<MIN>;<REU>;IGNORE # ẅ
+<U1E87> <w>;<MIN>;<PCT>;IGNORE # ẇ
+<U1E89> <w>;<MIN>;<BPT>;IGNORE # ẉ
+<U1E98> <w>;<MIN>;<RNE>;IGNORE # ẘ
+<U01BF> <w>;<MIN>;<PCL>;IGNORE # ƿ
+
+#
+# Letter X
+#
+<U0058> <x>;<CAP>;<BAS>;IGNORE # X
+<U1E8A> <x>;<CAP>;<PCT>;IGNORE # Ẋ
+<U1E8C> <x>;<CAP>;<REU>;IGNORE # Ẍ
+
+#
+# Letter x
+#
+<U0078> <x>;<MIN>;<BAS>;IGNORE # x
+<U1E8B> <x>;<MIN>;<PCT>;IGNORE # ẋ
+<U1E8D> <x>;<MIN>;<REU>;IGNORE # ẍ
+
+#
+# Letter Y
+#
+<U0059> <y>;<CAP>;<BAS>;IGNORE # Y
+<U0176> <y>;<CAP>;<CIR>;IGNORE # Ŷ
+<U1EF2> <y>;<CAP>;<GRA>;IGNORE # Ỳ
+<U00DD> <y>;<CAP>;<ACA>;IGNORE # Ý
+<U1EF8> <y>;<CAP>;<TIL>;IGNORE # Ỹ
+<U0178> <y>;<CAP>;<REU>;IGNORE # Ÿ
+<U0232> <y>;<CAP>;<MAC>;IGNORE # Ȳ
+<U1E8E> <y>;<CAP>;<PCT>;IGNORE # Ẏ
+<U1EF4> <y>;<CAP>;<BPT>;IGNORE # Ỵ
+<U1EF6> <y>;<CAP>;<HOK>;IGNORE # Ỷ
+<U01B3> <y>;<CAP>;<CRL>;IGNORE # Ƴ
+<U021C> <y>;<CAP>;<PCL>;IGNORE # Ȝ
+
+#
+# Letter y
+#
+<U0079> <y>;<MIN>;<BAS>;IGNORE # y
+<U0177> <y>;<MIN>;<CIR>;IGNORE # ŷ
+<U1EF3> <y>;<MIN>;<GRA>;IGNORE # ỳ
+<U00FD> <y>;<MIN>;<ACA>;IGNORE # ý
+<U1EF9> <y>;<MIN>;<TIL>;IGNORE # ỹ
+<U00FF> <y>;<MIN>;<REU>;IGNORE # ÿ
+<U0233> <y>;<MIN>;<MAC>;IGNORE # ȳ
+<U1E8F> <y>;<MIN>;<PCT>;IGNORE # ẏ
+<U1E99> <y>;<MIN>;<RNE>;IGNORE # ẙ
+<U1EF5> <y>;<MIN>;<BPT>;IGNORE # ỵ
+<U1EF7> <y>;<MIN>;<HOK>;IGNORE # ỷ
+<U01B4> <y>;<MIN>;<CRL>;IGNORE # ƴ
+<U021D> <y>;<MIN>;<PCL>;IGNORE # ȝ
+
+#
+# Letter Z
+#
+<U005A> <z>;<CAP>;<BAS>;IGNORE # Z
+<U0179> <z>;<CAP>;<ACA>;IGNORE # Ź
+<U017D> <z>;<CAP>;<CAR>;IGNORE # Ž
+<U017B> <z>;<CAP>;<PCT>;IGNORE # Ż
+<U1E90> <z>;<CAP>;<CIR>;IGNORE # Ẑ
+<U1E92> <z>;<CAP>;<BPT>;IGNORE # Ẓ
+<U1E94> <z>;<CAP>;<BMA>;IGNORE # Ẕ
+<U01B5> <z>;<CAP>;<OBL>;IGNORE # Ƶ
+<U0224> <z>;<CAP>;<CRL>;IGNORE # Ȥ
+
+#
+# Letter z
+#
+<U007A> <z>;<MIN>;<BAS>;IGNORE # z
+<U017A> <z>;<MIN>;<ACA>;IGNORE # ź
+<U017E> <z>;<MIN>;<CAR>;IGNORE # ž
+<U017C> <z>;<MIN>;<PCT>;IGNORE # ż
+<U1E91> <z>;<MIN>;<CIR>;IGNORE # ẑ
+<U1E93> <z>;<MIN>;<BPT>;IGNORE # ẓ
+<U1E95> <z>;<MIN>;<BMA>;IGNORE # ẕ
+<U01B6> <z>;<MIN>;<OBL>;IGNORE # ƶ
+<U0225> <z>;<MIN>;<CRL>;IGNORE # ȥ
+
+#
+# Letter Ʒ
+#
+<U01B7> <zh>;<CAP>;<BAS>;IGNORE # Ʒ
+<U01EE> <zh>;<CAP>;<CAR>;IGNORE # Ǯ
+
+#
+# Letter ʒ
+#
+<U0292> <zh>;<MIN>;<BAS>;IGNORE # ʒ
+<U01EF> <zh>;<MIN>;<CAR>;IGNORE # ǯ
+
+#
+# Letter Þ
+#
+<U00DE> <th>;<CAP>;<BAS>;IGNORE # þ
+
+#
+# Letter þ
+#
+<U00FE> <th>;<MIN>;<BAS>;IGNORE # Þ
+
+reorder-end
+
+END LC_COLLATE
