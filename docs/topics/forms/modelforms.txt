@@ -96,7 +96,7 @@ Model field                         Form field
 :class:`ManyToManyField`            :class:`~django.forms.ModelMultipleChoiceField`
                                     (see below)
 
-:class:`NullBooleanField`           :class:`~django.forms.CharField`
+:class:`NullBooleanField`           :class:`~django.forms.NullBooleanField`
 
 :class:`PositiveIntegerField`       :class:`~django.forms.IntegerField`
 
@@ -687,10 +687,10 @@ specifying an ``initial`` parameter when instantiating the form. Initial
 values provided this way will override both initial values from the form field
 and values from an attached model instance. For example::
 
-    >>> article = Article.objects.get(pk1=)
+    >>> article = Article.objects.get(pk=1)
     >>> article.headline
     'My headline'
-    >>> form = ArticleForm(initial={'headline': 'Initial headline'), instance=article)
+    >>> form = ArticleForm(initial={'headline': 'Initial headline'}, instance=article)
     >>> form['headline'].value()
     'Initial headline'
 
@@ -861,7 +861,8 @@ As with regular formsets, it's possible to :ref:`specify initial data
 parameter when instantiating the model formset class returned by
 :func:`~django.forms.models.modelformset_factory`. However, with model
 formsets, the initial values only apply to extra forms, those that aren't
-attached to an existing model instance.
+attached to an existing model instance. If the extra forms with initial data
+aren't changed by the user, they won't be validated or saved.
 
 .. _saving-objects-in-the-formset:
 
@@ -1118,7 +1119,7 @@ you have these two models::
         name = models.CharField(max_length=100)
 
     class Book(models.Model):
-        author = models.ForeignKey(Author)
+        author = models.ForeignKey(Author, on_delete=models.CASCADE)
         title = models.CharField(max_length=100)
 
 If you want to create a formset that allows you to edit books belonging to
@@ -1177,8 +1178,16 @@ need to resolve the ambiguity manually using ``fk_name``. For example, consider
 the following model::
 
     class Friendship(models.Model):
-        from_friend = models.ForeignKey(Friend, related_name='from_friends')
-        to_friend = models.ForeignKey(Friend, related_name='friends')
+        from_friend = models.ForeignKey(
+            Friend,
+            on_delete=models.CASCADE,
+            related_name='from_friends',
+        )
+        to_friend = models.ForeignKey(
+            Friend,
+            on_delete=models.CASCADE,
+            related_name='friends',
+        )
         length_in_months = models.IntegerField()
 
 To resolve this, you can use ``fk_name`` to

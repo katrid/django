@@ -2,10 +2,10 @@
 
 from django.http import HttpRequest
 from django.template import (
-    Context, RequestContext, Template, Variable, VariableDoesNotExist,
+    Context, Engine, RequestContext, Template, Variable, VariableDoesNotExist,
 )
 from django.template.context import RenderContext
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase
 
 
 class ContextTests(SimpleTestCase):
@@ -21,12 +21,25 @@ class ContextTests(SimpleTestCase):
         self.assertEqual(c["a"], 1)
         self.assertEqual(c.get("foo", 42), 42)
 
+    def test_push_context_manager(self):
+        c = Context({"a": 1})
         with c.push():
             c['a'] = 2
             self.assertEqual(c['a'], 2)
         self.assertEqual(c['a'], 1)
 
         with c.push(a=3):
+            self.assertEqual(c['a'], 3)
+        self.assertEqual(c['a'], 1)
+
+    def test_update_context_manager(self):
+        c = Context({"a": 1})
+        with c.update({}):
+            c['a'] = 2
+            self.assertEqual(c['a'], 2)
+        self.assertEqual(c['a'], 1)
+
+        with c.update({'a': 3}):
             self.assertEqual(c['a'], 3)
         self.assertEqual(c['a'], 1)
 
@@ -118,25 +131,20 @@ class ContextTests(SimpleTestCase):
 
 class RequestContextTests(SimpleTestCase):
 
-    @override_settings(TEMPLATES=[{
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'OPTIONS': {
-            'loaders': [
-                ('django.template.loaders.locmem.Loader', {
-                    'child': '{{ var|default:"none" }}',
-                }),
-            ],
-        },
-    }])
     def test_include_only(self):
         """
         #15721 -- ``{% include %}`` and ``RequestContext`` should work
         together.
         """
+        engine = Engine(loaders=[
+            ('django.template.loaders.locmem.Loader', {
+                'child': '{{ var|default:"none" }}',
+            }),
+        ])
         request = RequestFactory().get('/')
         ctx = RequestContext(request, {'var': 'parent'})
-        self.assertEqual(Template('{% include "child" %}').render(ctx), 'parent')
-        self.assertEqual(Template('{% include "child" only %}').render(ctx), 'none')
+        self.assertEqual(engine.from_string('{% include "child" %}').render(ctx), 'parent')
+        self.assertEqual(engine.from_string('{% include "child" only %}').render(ctx), 'none')
 
     def test_stack_size(self):
         """
@@ -145,8 +153,8 @@ class RequestContextTests(SimpleTestCase):
         request = RequestFactory().get('/')
         ctx = RequestContext(request, {})
         # The stack should now contain 3 items:
-        # [builtins, supplied context, context processor]
-        self.assertEqual(len(ctx.dicts), 3)
+        # [builtins, supplied context, context processor, empty dict]
+        self.assertEqual(len(ctx.dicts), 4)
 
     def test_context_comparable(self):
         # Create an engine without any context processors.
@@ -160,3 +168,10 @@ class RequestContextTests(SimpleTestCase):
             RequestContext(request, dict_=test_data),
             RequestContext(request, dict_=test_data),
         )
+
+    def test_modify_context_and_render(self):
+        template = Template('{{ foo }}')
+        request = RequestFactory().get('/')
+        context = RequestContext(request, {})
+        context['foo'] = 'foo'
+        self.assertEqual(template.render(context), 'foo')

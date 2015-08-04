@@ -3,18 +3,21 @@ import os
 from django.template import Context
 from django.template.engine import Engine
 from django.test import SimpleTestCase, ignore_warnings
-from django.utils.deprecation import RemovedInDjango20Warning
+from django.utils.deprecation import RemovedInDjango110Warning
 
 from .utils import ROOT, TEMPLATE_DIR
 
 OTHER_DIR = os.path.join(ROOT, 'other_templates')
 
 
-@ignore_warnings(category=RemovedInDjango20Warning)
+@ignore_warnings(category=RemovedInDjango110Warning)
 class DeprecatedRenderToStringTest(SimpleTestCase):
 
     def setUp(self):
-        self.engine = Engine(dirs=[TEMPLATE_DIR])
+        self.engine = Engine(
+            dirs=[TEMPLATE_DIR],
+            libraries={'custom': 'template_tests.templatetags.custom'},
+        )
 
     def test_basic_context(self):
         self.assertEqual(
@@ -55,7 +58,7 @@ class LoaderTests(SimpleTestCase):
     def test_origin(self):
         engine = Engine(dirs=[TEMPLATE_DIR], debug=True)
         template = engine.get_template('index.html')
-        self.assertEqual(template.origin.loadname, 'index.html')
+        self.assertEqual(template.origin.template_name, 'index.html')
 
     def test_loader_priority(self):
         """
@@ -88,7 +91,7 @@ class LoaderTests(SimpleTestCase):
         self.assertEqual(template.render(Context()), 'priority\n')
 
 
-@ignore_warnings(category=RemovedInDjango20Warning)
+@ignore_warnings(category=RemovedInDjango110Warning)
 class TemplateDirsOverrideTests(SimpleTestCase):
     DIRS = ((OTHER_DIR, ), [OTHER_DIR])
 

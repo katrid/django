@@ -21,8 +21,8 @@ Running the unit tests
 Quickstart
 ~~~~~~~~~~
 
-If you are on Python < 3.3, you'll first need to install a backport of the
-``unittest.mock`` module that's available in Python 3.3+. See
+If you are on Python 2, you'll first need to install a backport of the
+``unittest.mock`` module that's available in Python 3. See
 :ref:`running-unit-tests-dependencies` for details on installing `mock`_ and
 the other optional test dependencies.
 
@@ -33,6 +33,11 @@ sample settings module that uses the SQLite database. To run the tests::
    $ git clone https://github.com/django/django.git django-repo
    $ cd django-repo/tests
    $ PYTHONPATH=..:$PYTHONPATH ./runtests.py
+
+.. admonition:: Windows users
+
+    We recommend something like `Git Bash <https://msysgit.github.io/>`_ to run
+    the tests using the above approach.
 
 You can avoid typing the ``PYTHONPATH`` bit each time by adding your Django
 checkout to your ``PYTHONPATH`` or by installing the source checkout using pip.
@@ -133,13 +138,15 @@ dependencies:
 
 *  bcrypt_
 *  docutils_
+*  geoip2_
+*  jinja2_ 2.7+
 *  numpy_
 *  Pillow_
 *  PyYAML_
 *  pytz_
 *  setuptools_
 *  memcached_, plus a :ref:`supported Python binding <memcached>`
-*  mock_ (for Python < 3.3)
+*  mock_ (for Python 2)
 *  gettext_ (:ref:`gettext_on_windows`)
 *  selenium_
 *  sqlparse_
@@ -164,6 +171,8 @@ associated tests will be skipped.
 
 .. _bcrypt: https://pypi.python.org/pypi/bcrypt
 .. _docutils: https://pypi.python.org/pypi/docutils
+.. _geoip2: https://pypi.python.org/pypi/geoip2
+.. _jinja2: https://pypi.python.org/pypi/jinja2
 .. _numpy: https://pypi.python.org/pypi/numpy
 .. _Pillow: https://pypi.python.org/pypi/Pillow/
 .. _PyYAML: http://pyyaml.org/wiki/PyYAML

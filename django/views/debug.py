@@ -1,15 +1,12 @@
 from __future__ import unicode_literals
 
-import os
 import re
 import sys
 import types
 
 from django.conf import settings
 from django.core.urlresolvers import Resolver404, resolve
-from django.http import (
-    HttpRequest, HttpResponse, HttpResponseNotFound, build_request_repr,
-)
+from django.http import HttpResponse, HttpResponseNotFound
 from django.template import Context, Engine, TemplateDoesNotExist
 from django.template.defaultfilters import force_escape, pprint
 from django.utils import lru_cache, six, timezone
@@ -114,12 +111,6 @@ class ExceptionReporterFilter(object):
     contain lenient default behaviors.
     """
 
-    def get_request_repr(self, request):
-        if request is None:
-            return repr(None)
-        else:
-            return build_request_repr(request, POST_override=self.get_post_parameters(request))
-
     def get_post_parameters(self, request):
         if request is None:
             return {}
@@ -127,7 +118,7 @@ class ExceptionReporterFilter(object):
             return request.POST
 
     def get_traceback_frame_variables(self, request, tb_frame):
-        return list(six.iteritems(tb_frame.f_locals))
+        return list(tb_frame.f_locals.items())
 
 
 class SafeExceptionReporterFilter(ExceptionReporterFilter):
@@ -187,16 +178,13 @@ class SafeExceptionReporterFilter(ExceptionReporterFilter):
     def cleanse_special_types(self, request, value):
         try:
             # If value is lazy or a complex object of another kind, this check
-            # might raise an exception. isinstance checks that lazy HttpRequests
-            # or MultiValueDicts will have a return value.
-            is_request = isinstance(value, HttpRequest)
+            # might raise an exception. isinstance checks that lazy
+            # MultiValueDicts will have a return value.
+            is_multivalue_dict = isinstance(value, MultiValueDict)
         except Exception as e:
             return '{!r} while evaluating {!r}'.format(e, value)
 
-        if is_request:
-            # Cleanse the request's POST parameters.
-            value = self.get_request_repr(value)
-        elif isinstance(value, MultiValueDict):
+        if is_multivalue_dict:
             # Cleanse MultiValueDicts (request.POST is the one we usually care about)
             value = self.get_cleansed_multivaluedict(request, value)
         return value
@@ -266,61 +254,18 @@ class ExceptionReporter(object):
 
         self.template_info = getattr(self.exc_value, 'template_debug', None)
         self.template_does_not_exist = False
-        self.loader_debug_info = None
+        self.postmortem = None
 
         # Handle deprecated string exceptions
         if isinstance(self.exc_type, six.string_types):
             self.exc_value = Exception('Deprecated String Exception: %r' % self.exc_type)
             self.exc_type = type(self.exc_value)
 
-    def format_path_status(self, path):
-        if not os.path.exists(path):
-            return "File does not exist"
-        return "File exists"
-
     def get_traceback_data(self):
         """Return a dictionary containing traceback information."""
-        try:
-            default_template_engine = Engine.get_default()
-        except Exception:
-            # Since the debug view must never crash, catch all exceptions.
-            # If Django can't find a default template engine, get_default()
-            # raises ImproperlyConfigured. If some template engines fail to
-            # load, any exception may be raised.
-            default_template_engine = None
-
-        # TODO: add support for multiple template engines (#24120).
-        # TemplateDoesNotExist should carry all the information.
-        # Replaying the search process isn't a good design.
         if self.exc_type and issubclass(self.exc_type, TemplateDoesNotExist):
-            if default_template_engine is None:
-                template_loaders = []
-            else:
-                self.template_does_not_exist = True
-                self.loader_debug_info = []
-                # If Django fails in get_template_loaders, provide an empty list
-                # for the following loop to not fail.
-                try:
-                    template_loaders = default_template_engine.template_loaders
-                except Exception:
-                    template_loaders = []
-
-            for loader in template_loaders:
-                try:
-                    source_list_func = loader.get_template_sources
-                    # NOTE: This assumes exc_value is the name of the template that
-                    # the loader attempted to load.
-                    template_list = [{
-                        'name': t,
-                        'status': self.format_path_status(t),
-                    } for t in source_list_func(str(self.exc_value))]
-                except AttributeError:
-                    template_list = []
-                loader_name = loader.__module__ + '.' + loader.__class__.__name__
-                self.loader_debug_info.append({
-                    'loader': loader_name,
-                    'templates': template_list,
-                })
+            self.template_does_not_exist = True
+            self.postmortem = self.exc_value.chain or [self.exc_value]
 
         frames = self.get_traceback_frames()
         for i, frame in enumerate(frames):
@@ -363,7 +308,7 @@ class ExceptionReporter(object):
             'sys_path': sys.path,
             'template_info': self.template_info,
             'template_does_not_exist': self.template_does_not_exist,
-            'loader_debug_info': self.loader_debug_info,
+            'postmortem': self.postmortem,
         }
         # Check whether exception info is available
         if self.exc_type:
@@ -453,7 +398,7 @@ class ExceptionReporter(object):
         # sometimes in Python 3), take the traceback from self.tb (Python 2
         # doesn't have a __traceback__ attribute on Exception)
         exc_value = exceptions.pop()
-        tb = self.tb if not exceptions else exc_value.__traceback__
+        tb = self.tb if six.PY2 or not exceptions else exc_value.__traceback__
 
         while tb is not None:
             # Support for __traceback_hide__ which is used by a few libraries
@@ -488,7 +433,9 @@ class ExceptionReporter(object):
 
             # If the traceback for current exception is consumed, try the
             # other exception.
-            if not tb.tb_next and exceptions:
+            if six.PY2:
+                tb = tb.tb_next
+            elif not tb.tb_next and exceptions:
                 exc_value = exceptions.pop()
                 tb = exc_value.__traceback__
             else:
@@ -621,9 +568,9 @@ TECHNICAL_500_TEMPLATE = ("""
     ul.traceback li.user { background-color:#e0e0e0; color:#000 }
     div.context { padding:10px 0; overflow:hidden; }
     div.context ol { padding-left:30px; margin:0 10px; list-style-position: inside; }
-    div.context ol li { font-family:monospace; white-space:pre; color:#777; cursor:pointer; }
+    div.context ol li { font-family:monospace; white-space:pre; color:#777; cursor:pointer; padding-left: 2px; }
     div.context ol li pre { display:inline; }
-    div.context ol.context-line li { color:#505050; background-color:#dfdfdf; }
+    div.context ol.context-line li { color:#505050; background-color:#dfdfdf; padding: 3px 2px; }
     div.context ol.context-line li span { position:absolute; right:32px; }
     .user div.context ol.context-line li { background-color:#bbb; color:#000; }
     .user div.context ol li { color:#666; }
@@ -634,7 +581,8 @@ TECHNICAL_500_TEMPLATE = ("""
     #summary h2 { font-weight: normal; color: #666; }
     #explanation { background:#eee; }
     #template, #template-not-exist { background:#f6f6f6; }
-    #template-not-exist ul { margin: 0 0 0 20px; }
+    #template-not-exist ul { margin: 0 0 10px 20px; }
+    #template-not-exist .postmortem-section { margin-bottom: 3px; }
     #unicode-hint { background:#eee; }
     #traceback { background:#eee; }
     #requestinfo { background:#f6f6f6; padding-left:120px; }
@@ -646,6 +594,7 @@ TECHNICAL_500_TEMPLATE = ("""
     h2 span.commands { font-size:.7em;}
     span.commands a:link {color:#5E5694;}
     pre.exception_value { font-family: sans-serif; color: #666; font-size: 1.5em; margin: 10px 0 10px 0; }
+    .append-bottom { margin-bottom: 10px; }
   </style>
   {% if not is_email %}
   <script type="text/javascript">
@@ -697,7 +646,7 @@ TECHNICAL_500_TEMPLATE = ("""
     function switchPastebinFriendly(link) {
       s1 = "Switch to copy-and-paste view";
       s2 = "Switch back to interactive view";
-      link.innerHTML = link.innerHTML == s1 ? s2: s1;
+      link.innerHTML = link.innerHTML.trim() == s1 ? s2: s1;
       toggle('browserTraceback', 'pastebinTraceback');
       return false;
     }
@@ -772,19 +721,23 @@ TECHNICAL_500_TEMPLATE = ("""
 {% if template_does_not_exist %}
 <div id="template-not-exist">
     <h2>Template-loader postmortem</h2>
-    {% if loader_debug_info %}
-        <p>Django tried loading these templates, in this order:</p>
-        <ul>
-        {% for loader in loader_debug_info %}
-            <li>Using loader <code>{{ loader.loader }}</code>:
-                <ul>
-                {% for t in loader.templates %}<li><code>{{ t.name }}</code> ({{ t.status }})</li>{% endfor %}
-                </ul>
-            </li>
+    {% if postmortem %}
+        <p class="append-bottom">Django tried loading these templates, in this order:</p>
+        {% for entry in postmortem %}
+            <p class="postmortem-section">Using engine <code>{{ entry.backend.name }}</code>:</p>
+            <ul>
+                {% if entry.tried %}
+                    {% for attempt in entry.tried %}
+                        <li><code>{{ attempt.0.loader_name }}</code>: {{ attempt.0.name }} ({{ attempt.1 }})</li>
+                    {% endfor %}
+                    </ul>
+                {% else %}
+                    <li>This engine did not provide a list of tried templates.</li>
+                {% endif %}
+            </ul>
         {% endfor %}
-        </ul>
     {% else %}
-        <p>Django couldn't find any templates because your <code>'loaders'</code> option is empty!</p>
+        <p>No templates were found because your 'TEMPLATES' setting is not configured.</p>
     {% endif %}
 </div>
 {% endif %}
@@ -798,11 +751,9 @@ TECHNICAL_500_TEMPLATE = ("""
    {% for source_line in template_info.source_lines %}
    {% ifequal source_line.0 template_info.line %}
    <tr class="error"><th>{{ source_line.0 }}</th>
-     <td>
-      {{ template_info.before }}
-      <span class="specific">{{ template_info.during }}</span>
-      {{ template_info.after }}
-      </td>
+     <td>{{ template_info.before }}"""
+      """<span class="specific">{{ template_info.during }}</span>"""
+      """{{ template_info.after }}</td>
    </tr>
    {% else %}
       <tr><th>{{ source_line.0 }}</th>
@@ -844,7 +795,7 @@ TECHNICAL_500_TEMPLATE = ("""
               {% endif %}
               <ol start="{{ frame.lineno }}" class="context-line">
                 <li onclick="toggle('pre{{ frame.id }}', 'post{{ frame.id }}')"><pre>
-            {{ frame.context_line|escape }}</pre>{% if not is_email %} <span>...</span>{% endif %}</li></ol>
+"""            """{{ frame.context_line|escape }}</pre>{% if not is_email %} <span>...</span>{% endif %}</li></ol>
               {% if frame.post_context and not is_email  %}
                 <ol start='{{ frame.lineno|add:"1" }}' class="post-context" id="post{{ frame.id }}">
                   {% for line in frame.post_context %}
@@ -907,26 +858,35 @@ Installed Applications:
 Installed Middleware:
 {{ settings.MIDDLEWARE_CLASSES|pprint }}
 
-{% if template_does_not_exist %}Template Loader Error:
-{% if loader_debug_info %}Django tried loading these templates, in this order:
-{% for loader in loader_debug_info %}Using loader {{ loader.loader }}:
-{% for t in loader.templates %}{{ t.name }} ({{ t.status }})
-{% endfor %}{% endfor %}
-{% else %}Django couldn't find any templates because your 'loaders' option is empty!
+{% if template_does_not_exist %}Template loader postmortem
+{% if postmortem %}Django tried loading these templates, in this order:
+{% for entry in postmortem %}
+Using engine {{ entry.backend.name }}:
+{% if entry.tried %}{% for attempt in entry.tried %}    * {{ attempt.0.loader_name }}: {{ attempt.0.name }} ({{ attempt.1 }})
+{% endfor %}{% else %}    This engine did not provide a list of tried templates.
+{% endif %}{% endfor %}
+{% else %}No templates were found because your 'TEMPLATES' setting is not configured.
 {% endif %}
 {% endif %}{% if template_info %}
 Template error:
 In template {{ template_info.name }}, error at line {{ template_info.line }}
-   {{ template_info.message }}{% for source_line in template_info.source_lines %}
-{% ifequal source_line.0 template_info.line %}
-   {{ source_line.0 }} : {{ template_info.before }} {{ template_info.during }} {{ template_info.after }}
+   {{ template_info.message }}"""
+"{% for source_line in template_info.source_lines %}"
+"{% ifequal source_line.0 template_info.line %}"
+"   {{ source_line.0 }} : {{ template_info.before }} {{ template_info.during }} {{ template_info.after }}"
+"{% else %}"
+"   {{ source_line.0 }} : {{ source_line.1 }}"
+"""{% endifequal %}{% endfor %}{% endif %}
+
+Traceback:{% for frame in frames %}
+{% ifchanged frame.exc_cause %}{% if frame.exc_cause %}{% if frame.exc_cause_explicit %}
+The above exception ({{ frame.exc_cause }}) was the direct cause of the following exception:
 {% else %}
-   {{ source_line.0 }} : {{ source_line.1 }}
-{% endifequal %}{% endfor %}{% endif %}
-Traceback:
-{% for frame in frames %}File "{{ frame.filename|escape }}" in {{ frame.function|escape }}
-{% if frame.context_line %}  {{ frame.lineno }}. {{ frame.context_line|escape }}{% endif %}
-{% endfor %}
+During handling of the above exception ({{ frame.exc_cause }}), another exception occurred:
+{% endif %}{% endif %}{% endifchanged %}
+File "{{ frame.filename|escape }}" in {{ frame.function|escape }}
+{% if frame.context_line %}  {{ frame.lineno }}. {{ frame.context_line|escape }}{% endif %}{% endfor %}
+
 Exception Type: {{ exception_type|escape }}{% if request %} at {{ request.path_info|escape }}{% endif %}
 Exception Value: {{ exception_value|force_escape }}
 </textarea>
@@ -1084,7 +1044,7 @@ Exception Value: {{ exception_value|force_escape }}
 </html>
 """)
 
-TECHNICAL_500_TEXT_TEMPLATE = """{% firstof exception_type 'Report' %}{% if request %} at {{ request.path_info }}{% endif %}
+TECHNICAL_500_TEXT_TEMPLATE = ("""{% firstof exception_type 'Report' %}{% if request %} at {{ request.path_info }}{% endif %}
 {% firstof exception_value 'No exception message supplied' %}
 {% if request %}
 Request Method: {{ request.META.REQUEST_METHOD }}
@@ -1098,26 +1058,30 @@ Installed Applications:
 {{ settings.INSTALLED_APPS|pprint }}
 Installed Middleware:
 {{ settings.MIDDLEWARE_CLASSES|pprint }}
-{% if template_does_not_exist %}Template loader Error:
-{% if loader_debug_info %}Django tried loading these templates, in this order:
-{% for loader in loader_debug_info %}Using loader {{ loader.loader }}:
-{% for t in loader.templates %}{{ t.name }} ({{ t.status }})
-{% endfor %}{% endfor %}
-{% else %}Django couldn't find any templates because your 'loaders' option is empty!
+{% if template_does_not_exist %}Template loader postmortem
+{% if postmortem %}Django tried loading these templates, in this order:
+{% for entry in postmortem %}
+Using engine {{ entry.backend.name }}:
+{% if entry.tried %}{% for attempt in entry.tried %}    * {{ attempt.0.loader_name }}: {{ attempt.0.name }} ({{ attempt.1 }})
+{% endfor %}{% else %}    This engine did not provide a list of tried templates.
+{% endif %}{% endfor %}
+{% else %}No templates were found because your 'TEMPLATES' setting is not configured.
 {% endif %}
 {% endif %}{% if template_info %}
 Template error:
 In template {{ template_info.name }}, error at line {{ template_info.line }}
-   {{ template_info.message }}{% for source_line in template_info.source_lines %}
-{% ifequal source_line.0 template_info.line %}
-   {{ source_line.0 }} : {{ template_info.before }} {{ template_info.during }} {{ template_info.after }}
-{% else %}
-   {{ source_line.0 }} : {{ source_line.1 }}
-   {% endifequal %}{% endfor %}{% endif %}{% if frames %}
-Traceback:
-{% for frame in frames %}
-{% ifchanged frame.exc_cause %}
-  {% if frame.exc_cause %}
+   {{ template_info.message }}
+{% for source_line in template_info.source_lines %}"""
+"{% ifequal source_line.0 template_info.line %}"
+"   {{ source_line.0 }} : {{ template_info.before }} {{ template_info.during }} {{ template_info.after }}"
+"{% else %}"
+"   {{ source_line.0 }} : {{ source_line.1 }}"
+"""{% endifequal %}{% endfor %}{% endif %}{% if frames %}
+
+Traceback:"""
+"{% for frame in frames %}"
+"{% ifchanged frame.exc_cause %}"
+"  {% if frame.exc_cause %}" """
     {% if frame.exc_cause_explicit %}
       The above exception ({{ frame.exc_cause }}) was the direct cause of the following exception:
     {% else %}
@@ -1151,10 +1115,12 @@ Settings:
 Using settings module {{ settings.SETTINGS_MODULE }}{% for k, v in settings.items|dictsort:"0" %}
 {{ k }} = {{ v|stringformat:"r" }}{% endfor %}
 
+{% if not is_email %}
 You're seeing this error because you have DEBUG = True in your
 Django settings file. Change that to False, and Django will
 display a standard page generated by the handler for this status code.
-"""
+{% endif %}
+""")
 
 TECHNICAL_404_TEMPLATE = """
 <!DOCTYPE html>

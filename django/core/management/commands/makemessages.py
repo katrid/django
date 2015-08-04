@@ -3,10 +3,10 @@ from __future__ import unicode_literals
 import fnmatch
 import glob
 import io
-import locale
 import os
 import re
 import sys
+from functools import total_ordering
 from itertools import dropwhile
 
 import django
@@ -17,13 +17,14 @@ from django.core.management.utils import (
 )
 from django.utils import six
 from django.utils._os import upath
-from django.utils.encoding import force_str
-from django.utils.functional import cached_property, total_ordering
+from django.utils.encoding import DEFAULT_LOCALE_ENCODING, force_str
+from django.utils.functional import cached_property
 from django.utils.jslex import prepare_js_for_gettext
 from django.utils.text import get_text_list
 
 plural_forms_re = re.compile(r'^(?P<value>"Plural-Forms.+?\\n")\s*$', re.MULTILINE | re.DOTALL)
 STATUS_OK = 0
+NO_LOCALE_DIR = object()
 
 
 def check_programs(*programs):
@@ -37,15 +38,17 @@ def gettext_popen_wrapper(args, os_err_exc_type=CommandError, stdout_encoding="u
     """
     Makes sure text obtained from stdout of gettext utilities is Unicode.
     """
-    stdout, stderr, status_code = popen_wrapper(args, os_err_exc_type=os_err_exc_type)
-    preferred_encoding = locale.getpreferredencoding(False)
-    if os.name == 'nt' and six.PY3 and stdout_encoding != preferred_encoding:
-        # This looks weird because it's undoing what
-        # subprocess.Popen(universal_newlines=True).communicate()
-        # does when capturing PO files contents from stdout of gettext command
-        # line programs. No need to do anything on Python 2 because it's
-        # already a byte-string there (#23271).
-        stdout = stdout.encode(preferred_encoding).decode(stdout_encoding)
+    # This both decodes utf-8 and cleans line endings. Simply using
+    # popen_wrapper(universal_newlines=True) doesn't properly handle the
+    # encoding. This goes back to popen's flaky support for encoding:
+    # https://bugs.python.org/issue6135. This is a solution for #23271, #21928.
+    # No need to do anything on Python 2 because it's already a byte-string there.
+    manual_io_wrapper = six.PY3 and stdout_encoding != DEFAULT_LOCALE_ENCODING
+
+    stdout, stderr, status_code = popen_wrapper(args, os_err_exc_type=os_err_exc_type,
+                                                universal_newlines=not manual_io_wrapper)
+    if manual_io_wrapper:
+        stdout = io.TextIOWrapper(io.BytesIO(stdout), encoding=stdout_encoding).read()
     if six.PY2:
         stdout = stdout.decode(stdout_encoding)
     return stdout, stderr, status_code
@@ -149,6 +152,10 @@ class TranslatableFile(object):
                 command.stdout.write(errors)
         if msgs:
             # Write/append messages to pot file
+            if self.locale_dir is NO_LOCALE_DIR:
+                file_path = os.path.normpath(os.path.join(self.dirpath, self.file))
+                raise CommandError(
+                    "Unable to find a locale path to store translations for file %s" % file_path)
             potfile = os.path.join(self.locale_dir, '%s.pot' % str(domain))
             if is_templatized:
                 # Remove '.py' suffix
@@ -206,7 +213,7 @@ class Command(BaseCommand):
         parser.add_argument('--all', '-a', action='store_true', dest='all',
             default=False, help='Updates the message files for all existing locales.')
         parser.add_argument('--extension', '-e', dest='extensions',
-            help='The file extension(s) to examine (default: "html,txt", or "js" '
+            help='The file extension(s) to examine (default: "html,txt,py", or "js" '
                  'if the domain is "djangojs"). Separate multiple extensions with '
                  'commas, or use -e multiple times.',
             action='append')
@@ -332,7 +339,7 @@ class Command(BaseCommand):
         # when looking up the version. It's especially a problem on Windows.
         out, err, status = gettext_popen_wrapper(
             ['xgettext', '--version'],
-            stdout_encoding=locale.getpreferredencoding(False),
+            stdout_encoding=DEFAULT_LOCALE_ENCODING,
         )
         m = re.search(r'(\d+)\.(\d+)\.?(\d+)?', out)
         if m:
@@ -435,8 +442,7 @@ class Command(BaseCommand):
                     if not locale_dir:
                         locale_dir = self.default_locale_path
                     if not locale_dir:
-                        raise CommandError(
-                            "Unable to find a locale path to store translations for file %s" % file_path)
+                        locale_dir = NO_LOCALE_DIR
                     all_files.append(TranslatableFile(dirpath, filename, locale_dir))
         return sorted(all_files)
 

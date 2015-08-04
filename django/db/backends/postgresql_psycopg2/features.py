@@ -3,7 +3,7 @@ from django.db.utils import InterfaceError
 
 
 class DatabaseFeatures(BaseDatabaseFeatures):
-    needs_datetime_string_cast = False
+    allows_group_by_selected_pks = True
     can_return_id_from_insert = True
     has_real_datatype = True
     has_native_uuid_field = True
@@ -27,3 +27,4 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     closed_cursor_error_class = InterfaceError
     has_case_insensitive_like = False
     requires_sqlparse_for_splitting = False
+    greatest_least_ignores_nulls = True

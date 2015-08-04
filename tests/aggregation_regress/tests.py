@@ -7,16 +7,17 @@ from operator import attrgetter
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import FieldError
+from django.db import connection
 from django.db.models import (
     F, Q, Avg, Count, Max, StdDev, Sum, Value, Variance,
 )
-from django.test import TestCase, skipUnlessDBFeature
+from django.test import TestCase, skipUnlessAnyDBFeature, skipUnlessDBFeature
 from django.test.utils import Approximate
 from django.utils import six
 
 from .models import (
     Alfa, Author, Book, Bravo, Charlie, Clues, Entries, HardbackBook, ItemTag,
-    Publisher, Store, WithManualPK,
+    Publisher, SelfRefFK, Store, WithManualPK,
 )
 
 
@@ -346,6 +347,20 @@ class AggregationTests(TestCase):
         self.assertEqual(
             Book.objects.annotate(c=Count('authors')).values('c').aggregate(Max('c')),
             {'c__max': 3}
+        )
+
+    def test_decimal_aggregate_annotation_filter(self):
+        """
+        Filtering on an aggregate annotation with Decimal values should work.
+        Requires special handling on SQLite (#18247).
+        """
+        self.assertEqual(
+            len(Author.objects.annotate(sum=Sum('book_contact_set__price')).filter(sum__gt=Decimal(40))),
+            1
+        )
+        self.assertEqual(
+            len(Author.objects.annotate(sum=Sum('book_contact_set__price')).filter(sum__lte=Decimal(40))),
+            4
         )
 
     def test_field_error(self):
@@ -1011,7 +1026,7 @@ class AggregationTests(TestCase):
         # Check that the query executes without problems.
         self.assertEqual(len(qs.exclude(publisher=-1)), 6)
 
-    @skipUnlessDBFeature("allows_group_by_pk")
+    @skipUnlessAnyDBFeature('allows_group_by_pk', 'allows_group_by_selected_pks')
     def test_aggregate_duplicate_columns(self):
         # Regression test for #17144
 
@@ -1041,7 +1056,7 @@ class AggregationTests(TestCase):
             ]
         )
 
-    @skipUnlessDBFeature("allows_group_by_pk")
+    @skipUnlessAnyDBFeature('allows_group_by_pk', 'allows_group_by_selected_pks')
     def test_aggregate_duplicate_columns_only(self):
         # Works with only() too.
         results = Author.objects.only('id', 'name').annotate(num_contacts=Count('book_contact_set'))
@@ -1067,13 +1082,14 @@ class AggregationTests(TestCase):
             ]
         )
 
-    @skipUnlessDBFeature("allows_group_by_pk")
+    @skipUnlessAnyDBFeature('allows_group_by_pk', 'allows_group_by_selected_pks')
     def test_aggregate_duplicate_columns_select_related(self):
         # And select_related()
         results = Book.objects.select_related('contact').annotate(
             num_authors=Count('authors'))
         _, _, grouping = results.query.get_compiler(using='default').pre_sql_setup()
-        self.assertEqual(len(grouping), 1)
+        # In the case of `group_by_selected_pks` we also group by contact.id because of the select_related.
+        self.assertEqual(len(grouping), 1 if connection.features.allows_group_by_pk else 2)
         self.assertIn('id', grouping[0][0])
         self.assertNotIn('name', grouping[0][0])
         self.assertNotIn('contact', grouping[0][0])
@@ -1275,3 +1291,15 @@ class JoinPromotionTests(TestCase):
     def test_non_nullable_fk_not_promoted(self):
         qs = Book.objects.annotate(Count('contact__name'))
         self.assertIn(' INNER JOIN ', str(qs.query))
+
+
+class SelfReferentialFKTests(TestCase):
+    def test_ticket_24748(self):
+        t1 = SelfRefFK.objects.create(name='t1')
+        SelfRefFK.objects.create(name='t2', parent=t1)
+        SelfRefFK.objects.create(name='t3', parent=t1)
+        self.assertQuerysetEqual(
+            SelfRefFK.objects.annotate(num_children=Count('children')).order_by('name'),
+            [('t1', 2), ('t2', 0), ('t3', 0)],
+            lambda x: (x.name, x.num_children)
+        )

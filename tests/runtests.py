@@ -16,6 +16,13 @@ from django.test import TestCase, TransactionTestCase
 from django.test.utils import get_runner
 from django.utils import six
 from django.utils._os import upath
+from django.utils.deprecation import (
+    RemovedInDjango20Warning, RemovedInDjango110Warning,
+)
+from django.utils.log import DEFAULT_LOGGING
+
+warnings.simplefilter("error", RemovedInDjango110Warning)
+warnings.simplefilter("error", RemovedInDjango20Warning)
 
 RUNTESTS_DIR = os.path.abspath(os.path.dirname(upath(__file__)))
 
@@ -67,12 +74,9 @@ def get_test_modules():
     modules = []
     discovery_paths = [
         (None, RUNTESTS_DIR),
+        # GIS tests are in nested apps
+        ('gis_tests', os.path.join(RUNTESTS_DIR, 'gis_tests')),
     ]
-    # GIS tests are in nested apps
-    if connection.features.gis_enabled:
-        discovery_paths.append(
-            ('gis_tests', os.path.join(RUNTESTS_DIR, 'gis_tests'))
-        )
 
     for modpath, dirpath in discovery_paths:
         for f in os.listdir(dirpath):
@@ -80,8 +84,6 @@ def get_test_modules():
                     os.path.basename(f) in SUBDIRS_TO_SKIP or
                     os.path.isfile(f) or
                     not os.path.exists(os.path.join(dirpath, f, '__init__.py'))):
-                continue
-            if connection.vendor != 'postgresql' and f == 'postgres_tests':
                 continue
             modules.append((modpath, f))
     return modules
@@ -105,8 +107,6 @@ def setup(verbosity, test_labels):
     state = {
         'INSTALLED_APPS': settings.INSTALLED_APPS,
         'ROOT_URLCONF': getattr(settings, "ROOT_URLCONF", ""),
-        # Remove the following line in Django 2.0.
-        'TEMPLATE_DIRS': settings.TEMPLATE_DIRS,
         'TEMPLATES': settings.TEMPLATES,
         'LANGUAGE_CODE': settings.LANGUAGE_CODE,
         'STATIC_URL': settings.STATIC_URL,
@@ -119,8 +119,6 @@ def setup(verbosity, test_labels):
     settings.ROOT_URLCONF = 'urls'
     settings.STATIC_URL = '/static/'
     settings.STATIC_ROOT = os.path.join(TMPDIR, 'static')
-    # Remove the following line in Django 2.0.
-    settings.TEMPLATE_DIRS = [TEMPLATE_DIR]
     settings.TEMPLATES = [{
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [TEMPLATE_DIR],
@@ -143,6 +141,11 @@ def setup(verbosity, test_labels):
         'auth': 'django.contrib.auth.tests.migrations',
         'contenttypes': 'contenttypes_tests.migrations',
     }
+    log_config = DEFAULT_LOGGING
+    # Filter out non-error logging so we don't have to capture it in lots of
+    # tests.
+    log_config['loggers']['django']['level'] = 'ERROR'
+    settings.LOGGING = log_config
 
     if verbosity > 0:
         # Ensure any warnings captured to logging are piped through a verbose
@@ -151,6 +154,17 @@ def setup(verbosity, test_labels):
         logger = logging.getLogger('py.warnings')
         handler = logging.StreamHandler()
         logger.addHandler(handler)
+
+    warnings.filterwarnings(
+        'ignore',
+        'django.contrib.webdesign will be removed in Django 1.10.',
+        RemovedInDjango110Warning
+    )
+    warnings.filterwarnings(
+        'ignore',
+        'The GeoManager class is deprecated.',
+        RemovedInDjango20Warning
+    )
 
     # Load all the ALWAYS_INSTALLED_APPS.
     django.setup()
@@ -220,11 +234,6 @@ def teardown(state):
 def django_tests(verbosity, interactive, failfast, keepdb, reverse, test_labels, debug_sql):
     state = setup(verbosity, test_labels)
     extra_tests = []
-
-    if test_labels and 'postgres_tests' in test_labels and connection.vendor != 'postgres':
-        if verbosity >= 2:
-            print("Removed postgres_tests from tests as we're not running with PostgreSQL.")
-        test_labels.remove('postgres_tests')
 
     # Run the test suite, including the extra validation tests.
     if not hasattr(settings, 'TEST_RUNNER'):

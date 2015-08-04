@@ -4,7 +4,7 @@ from django import forms
 from django.contrib import admin
 from django.contrib.contenttypes.admin import GenericStackedInline
 from django.core import checks
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 from .models import Album, Book, City, Influence, Song, State, TwoAlbumFKAndAnE
 
@@ -41,7 +41,7 @@ class MyAdmin(admin.ModelAdmin):
     SILENCED_SYSTEM_CHECKS=['fields.W342'],  # ForeignKey(unique=True)
     INSTALLED_APPS=['django.contrib.auth', 'django.contrib.contenttypes', 'admin_checks']
 )
-class SystemChecksTestCase(TestCase):
+class SystemChecksTestCase(SimpleTestCase):
 
     @override_settings(DEBUG=True)
     def test_checks_are_performed(self):
@@ -125,7 +125,7 @@ class SystemChecksTestCase(TestCase):
 
     def test_fieldsets_fields_non_tuple(self):
         """
-        Tests for a tuple/list within fieldsets[1]['fields'].
+        Tests for a tuple/list for the first fieldset's fields.
         """
         class NotATupleAdmin(admin.ModelAdmin):
             list_display = ["pk", "title"]
@@ -139,7 +139,7 @@ class SystemChecksTestCase(TestCase):
         errors = NotATupleAdmin.check(model=Song)
         expected = [
             checks.Error(
-                "The value of 'fieldsets[1]['fields']' must be a list or tuple.",
+                "The value of 'fieldsets[0][1]['fields']' must be a list or tuple.",
                 hint=None,
                 obj=NotATupleAdmin,
                 id='admin.E008',
@@ -149,7 +149,7 @@ class SystemChecksTestCase(TestCase):
 
     def test_nonfirst_fieldset(self):
         """
-        Tests for a tuple/list within the second fieldsets[2]['fields'].
+        Tests for a tuple/list for the second fieldset's fields.
         """
         class NotATupleAdmin(admin.ModelAdmin):
             fieldsets = [
@@ -164,7 +164,7 @@ class SystemChecksTestCase(TestCase):
         errors = NotATupleAdmin.check(model=Song)
         expected = [
             checks.Error(
-                "The value of 'fieldsets[1]['fields']' must be a list or tuple.",
+                "The value of 'fieldsets[1][1]['fields']' must be a list or tuple.",
                 hint=None,
                 obj=NotATupleAdmin,
                 id='admin.E008',

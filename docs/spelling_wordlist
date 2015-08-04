@@ -79,6 +79,7 @@ Boersma
 boilerplatish
 Bokmål
 bolded
+bookmarklet
 bookmarklets
 Bookmarklets
 boolean
@@ -330,6 +331,7 @@ headerlist
 hoc
 Hoerner
 Holovaty
+Holscher
 Homebrew
 honeypot
 Honza
@@ -389,7 +391,7 @@ itunes
 iTunes
 ize
 Jannis
-javascript
+JavaScript
 Jinja
 jQuery
 JServ
@@ -436,6 +438,7 @@ Login
 logout
 Logout
 Loïc
+lookaround
 lookup
 Lookup
 lookups
@@ -453,6 +456,7 @@ makemessages
 makemigrations
 Mako
 Mapnik
+Marczewski
 Marino
 Markus
 MBR
@@ -490,6 +494,7 @@ Multi
 multicolumn
 multijoins
 multiline
+multilinestring
 multipart
 multipolygon
 multithreaded
@@ -512,6 +517,7 @@ naturalday
 naturaltime
 nd
 needsinfo
+německy
 nestable
 neuroscientist
 newforms
@@ -541,6 +547,7 @@ Palau
 parameterized
 params
 parens
+Paweł
 pdf
 PEM
 perl
@@ -599,6 +606,7 @@ proxied
 proxying
 pseudocode
 psycopg
+Punycode
 Puthraya
 py
 pyformat
@@ -615,10 +623,12 @@ Querysets
 querystring
 queueing
 Quickstart
+QUnit
 quo
 quoteless
 Radziej
 rc
+reallowed
 rebase
 rebased
 rebasing
@@ -654,6 +664,7 @@ repo
 reportable
 reprojection
 reraise
+resampling
 reST
 reStructuredText
 reupload
@@ -682,6 +693,7 @@ screenshots
 sdist
 semimajor
 semiminor
+Sendecka
 sendtestemail
 serializability
 serializable
@@ -813,6 +825,7 @@ timezones
 titlecase
 tmp
 tokenized
+Tomek
 toolbar
 toolkits
 toolset
@@ -917,6 +930,7 @@ versioning
 vertices
 viewable
 virtualenv
+virtualenvs
 virtualized
 Votizen
 webapps

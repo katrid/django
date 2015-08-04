@@ -9,14 +9,15 @@ import os
 import shutil
 import tempfile as sys_tempfile
 import unittest
+from io import BytesIO
 
 from django.core.files import temp as tempfile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.http.multipartparser import MultiPartParser, parse_header
-from django.test import TestCase, client, override_settings
+from django.test import SimpleTestCase, TestCase, client, override_settings
 from django.utils.encoding import force_bytes
 from django.utils.http import urlquote
-from django.utils.six import PY2, BytesIO, StringIO
+from django.utils.six import PY2, StringIO
 
 from . import uploadhandler
 from .models import FileModel
@@ -509,7 +510,7 @@ class FileUploadTests(TestCase):
 
 
 @override_settings(MEDIA_ROOT=MEDIA_ROOT)
-class DirectoryCreationTests(TestCase):
+class DirectoryCreationTests(SimpleTestCase):
     """
     Tests for error handling during directory creation
     via _save_FIELD_file (ticket #6450)
@@ -533,7 +534,7 @@ class DirectoryCreationTests(TestCase):
         os.chmod(MEDIA_ROOT, 0o500)
         self.addCleanup(os.chmod, MEDIA_ROOT, 0o700)
         try:
-            self.obj.testfile.save('foo.txt', SimpleUploadedFile('foo.txt', b'x'))
+            self.obj.testfile.save('foo.txt', SimpleUploadedFile('foo.txt', b'x'), save=False)
         except OSError as err:
             self.assertEqual(err.errno, errno.EACCES)
         except Exception:
@@ -546,7 +547,7 @@ class DirectoryCreationTests(TestCase):
         self.addCleanup(os.remove, UPLOAD_TO)
         with self.assertRaises(IOError) as exc_info:
             with SimpleUploadedFile('foo.txt', b'x') as file:
-                self.obj.testfile.save('foo.txt', file)
+                self.obj.testfile.save('foo.txt', file, save=False)
         # The test needs to be done on a specific string as IOError
         # is raised even without the patch (just not early enough)
         self.assertEqual(exc_info.exception.args[0],

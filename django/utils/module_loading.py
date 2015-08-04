@@ -23,7 +23,7 @@ def import_string(dotted_path):
         return getattr(module, class_name)
     except AttributeError:
         msg = 'Module "%s" does not define a "%s" attribute/class' % (
-            dotted_path, class_name)
+            module_path, class_name)
         six.reraise(ImportError, ImportError(msg), sys.exc_info()[2])
 
 
@@ -63,11 +63,8 @@ def autodiscover_modules(*args, **kwargs):
                     raise
 
 
-if sys.version_info[:2] >= (3, 3):
-    if sys.version_info[:2] >= (3, 4):
-        from importlib.util import find_spec as importlib_find
-    else:
-        from importlib import find_loader as importlib_find
+if six.PY3:
+    from importlib.util import find_spec as importlib_find
 
     def module_has_submodule(package, module_name):
         """See if 'module' is in 'package'."""

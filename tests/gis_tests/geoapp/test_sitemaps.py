@@ -5,16 +5,14 @@ from io import BytesIO
 from xml.dom import minidom
 
 from django.conf import settings
-from django.contrib.gis.geos import HAS_GEOS
 from django.contrib.sites.models import Site
 from django.test import (
     TestCase, ignore_warnings, modify_settings, override_settings,
     skipUnlessDBFeature,
 )
-from django.utils.deprecation import RemovedInDjango20Warning
+from django.utils.deprecation import RemovedInDjango110Warning
 
-if HAS_GEOS:
-    from .models import City, Country
+from .models import City, Country
 
 
 @modify_settings(INSTALLED_APPS={'append': ['django.contrib.sites', 'django.contrib.sitemaps']})
@@ -32,7 +30,7 @@ class GeoSitemapTest(TestCase):
         expected = set(expected)
         self.assertEqual(actual, expected)
 
-    @ignore_warnings(category=RemovedInDjango20Warning)
+    @ignore_warnings(category=RemovedInDjango110Warning)
     def test_geositemap_kml(self):
         "Tests KML/KMZ geographic sitemaps."
         for kml_type in ('kml', 'kmz'):
@@ -62,10 +60,10 @@ class GeoSitemapTest(TestCase):
                 elif kml_type == 'kmz':
                     # Have to decompress KMZ before parsing.
                     buf = BytesIO(self.client.get(kml_url).content)
-                    zf = zipfile.ZipFile(buf)
-                    self.assertEqual(1, len(zf.filelist))
-                    self.assertEqual('doc.kml', zf.filelist[0].filename)
-                    kml_doc = minidom.parseString(zf.read('doc.kml'))
+                    with zipfile.ZipFile(buf) as zf:
+                        self.assertEqual(1, len(zf.filelist))
+                        self.assertEqual('doc.kml', zf.filelist[0].filename)
+                        kml_doc = minidom.parseString(zf.read('doc.kml'))
 
                 # Ensuring the correct number of placemarks are in the KML doc.
                 if 'city' in kml_url:

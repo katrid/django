@@ -18,7 +18,7 @@ from django.core.exceptions import ImproperlyConfigured, ViewDoesNotExist
 from django.http import Http404
 from django.utils import lru_cache, six
 from django.utils.datastructures import MultiValueDict
-from django.utils.deprecation import RemovedInDjango20Warning
+from django.utils.deprecation import RemovedInDjango110Warning
 from django.utils.encoding import force_str, force_text, iri_to_uri
 from django.utils.functional import cached_property, lazy
 from django.utils.http import RFC3986_SUBDELIMS, urlquote
@@ -37,12 +37,16 @@ _urlconfs = local()
 
 
 class ResolverMatch(object):
-    def __init__(self, func, args, kwargs, url_name=None, app_name=None, namespaces=None):
+    def __init__(self, func, args, kwargs, url_name=None, app_names=None, namespaces=None):
         self.func = func
         self.args = args
         self.kwargs = kwargs
         self.url_name = url_name
-        self.app_name = app_name
+
+        # If a URLRegexResolver doesn't have a namespace or app_name, it passes
+        # in an empty value.
+        self.app_names = [x for x in app_names if x] if app_names else []
+        self.app_name = ':'.join(self.app_names)
 
         if namespaces:
             self.namespaces = [x for x in namespaces if x]
@@ -64,8 +68,8 @@ class ResolverMatch(object):
         return (self.func, self.args, self.kwargs)[index]
 
     def __repr__(self):
-        return "ResolverMatch(func=%s, args=%s, kwargs=%s, url_name=%s, app_name=%s, namespaces=%s)" % (
-            self._func_path, self.args, self.kwargs, self.url_name, self.app_name, self.namespaces)
+        return "ResolverMatch(func=%s, args=%s, kwargs=%s, url_name=%s, app_names=%s, namespaces=%s)" % (
+            self._func_path, self.args, self.kwargs, self.url_name, self.app_names, self.namespaces)
 
 
 class Resolver404(Http404):
@@ -93,6 +97,11 @@ def get_callable(lookup_view, can_fail=False):
     """
     if callable(lookup_view):
         return lookup_view
+
+    if not isinstance(lookup_view, six.string_types):
+        raise ViewDoesNotExist(
+            "'%s' is not a callable or a dot-notation path" % lookup_view
+        )
 
     mod_name, func_name = get_mod_func(lookup_view)
     if not func_name:  # No '.' in lookup_view
@@ -390,7 +399,7 @@ class RegexURLResolver(LocaleRegexProvider):
                             sub_match_args,
                             sub_match_dict,
                             sub_match.url_name,
-                            self.app_name or sub_match.app_name,
+                            [self.app_name] + sub_match.app_names,
                             [self.namespace] + sub_match.namespaces
                         )
                     tried.append([pattern])
@@ -450,7 +459,7 @@ class RegexURLResolver(LocaleRegexProvider):
             if not callable(original_lookup) and callable(lookup_view):
                 warnings.warn(
                     'Reversing by dotted path is deprecated (%s).' % original_lookup,
-                    RemovedInDjango20Warning, stacklevel=3
+                    RemovedInDjango110Warning, stacklevel=3
                 )
         possibilities = self.reverse_dict.getlist(lookup_view)
 
@@ -544,19 +553,26 @@ def reverse(viewname, urlconf=None, args=None, kwargs=None, current_app=None):
         view = parts[0]
         path = parts[1:]
 
+        if current_app:
+            current_path = current_app.split(':')
+            current_path.reverse()
+        else:
+            current_path = None
+
         resolved_path = []
         ns_pattern = ''
         while path:
             ns = path.pop()
+            current_ns = current_path.pop() if current_path else None
 
             # Lookup the name to see if it could be an app identifier
             try:
                 app_list = resolver.app_dict[ns]
                 # Yes! Path part matches an app in the current Resolver
-                if current_app and current_app in app_list:
+                if current_ns and current_ns in app_list:
                     # If we are reversing for a particular app,
                     # use that namespace
-                    ns = current_app
+                    ns = current_ns
                 elif ns not in app_list:
                     # The name isn't shared by one of the instances
                     # (i.e., the default) so just pick the first instance
@@ -564,6 +580,9 @@ def reverse(viewname, urlconf=None, args=None, kwargs=None, current_app=None):
                     ns = app_list[0]
             except KeyError:
                 pass
+
+            if ns != current_ns:
+                current_path = None
 
             try:
                 extra, resolver = resolver.namespace_dict[ns]

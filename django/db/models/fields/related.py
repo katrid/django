@@ -1,6 +1,7 @@
 from __future__ import unicode_literals
 
 import warnings
+from functools import partial
 from operator import attrgetter
 
 from django import forms
@@ -15,87 +16,79 @@ from django.db.models.fields import (
     BLANK_CHOICE_DASH, AutoField, Field, IntegerField, PositiveIntegerField,
     PositiveSmallIntegerField,
 )
-from django.db.models.lookups import IsNull
+from django.db.models.fields.related_lookups import (
+    RelatedExact, RelatedGreaterThan, RelatedGreaterThanOrEqual, RelatedIn,
+    RelatedLessThan, RelatedLessThanOrEqual,
+)
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import PathInfo
+from django.db.models.utils import make_model_tuple
 from django.utils import six
-from django.utils.deprecation import RemovedInDjango20Warning
+from django.utils.deprecation import (
+    RemovedInDjango20Warning, RemovedInDjango110Warning,
+)
 from django.utils.encoding import force_text, smart_text
 from django.utils.functional import cached_property, curry
 from django.utils.translation import ugettext_lazy as _
+from django.utils.version import get_docs_version
 
 RECURSIVE_RELATIONSHIP_CONSTANT = 'self'
 
 
-def add_lazy_relation(cls, field, relation, operation):
+def resolve_relation(scope_model, relation):
     """
-    Adds a lookup on ``cls`` when a related field is defined using a string,
-    i.e.::
+    Transform relation into a model or fully-qualified model string of the form
+    "app_label.ModelName", relative to scope_model.
 
-        class MyModel(Model):
-            fk = ForeignKey("AnotherModel")
-
-    This string can be:
-
-        * RECURSIVE_RELATIONSHIP_CONSTANT (i.e. "self") to indicate a recursive
-          relation.
-
-        * The name of a model (i.e "AnotherModel") to indicate another model in
-          the same app.
-
-        * An app-label and model name (i.e. "someapp.AnotherModel") to indicate
-          another model in a different app.
-
-    If the other model hasn't yet been loaded -- almost a given if you're using
-    lazy relationships -- then the relation won't be set up until the
-    class_prepared signal fires at the end of model initialization.
-
-    ``operation`` is the work that must be performed once the relation can be
-    resolved.
+    The relation argument can be:
+      * RECURSIVE_RELATIONSHIP_CONSTANT, i.e. the string "self", in which case
+        the model argument will be returned.
+      * A bare model name without an app_label, in which case scope_model's
+        app_label will be prepended.
+      * An "app_label.ModelName" string.
+      * A model class, which will be returned unchanged.
     """
     # Check for recursive relations
     if relation == RECURSIVE_RELATIONSHIP_CONSTANT:
-        app_label = cls._meta.app_label
-        model_name = cls.__name__
+        relation = scope_model
 
-    else:
-        # Look for an "app.Model" relation.
+    # Look for an "app.Model" relation
+    if isinstance(relation, six.string_types):
+        if "." not in relation:
+            relation = "%s.%s" % (scope_model._meta.app_label, relation)
 
-        if isinstance(relation, six.string_types):
-            try:
-                app_label, model_name = relation.split(".")
-            except ValueError:
-                # If we can't split, assume a model in current app.
-                app_label = cls._meta.app_label
-                model_name = relation
-        else:
-            # It's actually a model class.
-            app_label = relation._meta.app_label
-            model_name = relation._meta.object_name
-
-    # Try to look up the related model, and if it's already loaded resolve the
-    # string right away. If get_registered_model raises a LookupError, it means
-    # that the related model isn't loaded yet, so we need to pend the relation
-    # until the class is prepared.
-    try:
-        model = cls._meta.apps.get_registered_model(app_label, model_name)
-    except LookupError:
-        key = (app_label, model_name)
-        value = (cls, field, operation)
-        cls._meta.apps._pending_lookups.setdefault(key, []).append(value)
-    else:
-        operation(field, model, cls)
+    return relation
 
 
-def do_pending_lookups(sender, **kwargs):
+def lazy_related_operation(function, model, *related_models, **kwargs):
     """
-    Sent from class_prepared to handle pending relations to the sending model.
-    """
-    key = (sender._meta.app_label, sender.__name__)
-    for cls, field, operation in sender._meta.apps._pending_lookups.pop(key, []):
-        operation(field, sender, cls)
+    Schedule `function` to be called once `model` and all `related_models`
+    have been imported and registered with the app registry. `function` will
+    be called with the newly-loaded model classes as its positional arguments,
+    plus any optional keyword arguments.
 
-signals.class_prepared.connect(do_pending_lookups)
+    The `model` argument must be a model class. Each subsequent positional
+    argument is another model, or a reference to another model - see
+    `resolve_relation()` for the various forms these may take. Any relative
+    references will be resolved relative to `model`.
+
+    This is a convenience wrapper for `Apps.lazy_model_operation` - the app
+    registry model used is the one found in `model._meta.apps`.
+    """
+    models = [model] + [resolve_relation(model, rel) for rel in related_models]
+    model_keys = (make_model_tuple(m) for m in models)
+    apps = model._meta.apps
+    return apps.lazy_model_operation(partial(function, **kwargs), *model_keys)
+
+
+def add_lazy_relation(cls, field, relation, operation):
+    warnings.warn(
+        "add_lazy_relation() has been superseded by lazy_related_operation() "
+        "and related methods on the Apps class.",
+        RemovedInDjango20Warning, stacklevel=2)
+    # Rearrange args for new Apps.lazy_model_operation
+    function = lambda local, related, field: operation(field, related, local)
+    lazy_related_operation(function, cls, relation, field=field)
 
 
 class RelatedField(Field):
@@ -113,7 +106,7 @@ class RelatedField(Field):
     def related_model(self):
         # Can't cache this property until all the models are loaded.
         apps.check_models_ready()
-        return self.rel.to
+        return self.remote_field.model
 
     def check(self, **kwargs):
         errors = super(RelatedField, self).check(**kwargs)
@@ -126,15 +119,23 @@ class RelatedField(Field):
     def _check_related_name_is_valid(self):
         import re
         import keyword
-        related_name = self.rel.related_name
-
-        is_valid_id = (related_name and re.match('^[a-zA-Z_][a-zA-Z0-9_]*$', related_name)
-                       and not keyword.iskeyword(related_name))
-        if related_name and not (is_valid_id or related_name.endswith('+')):
+        related_name = self.remote_field.related_name
+        if not related_name:
+            return []
+        is_valid_id = True
+        if keyword.iskeyword(related_name):
+            is_valid_id = False
+        if six.PY3:
+            if not related_name.isidentifier():
+                is_valid_id = False
+        else:
+            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*\Z', related_name):
+                is_valid_id = False
+        if not (is_valid_id or related_name.endswith('+')):
             return [
                 checks.Error(
                     "The name '%s' is invalid related_name for field %s.%s" %
-                    (self.rel.related_name, self.model._meta.object_name,
+                    (self.remote_field.related_name, self.model._meta.object_name,
                      self.name),
                     hint="Related name must be a valid Python identifier or end with a '+'",
                     obj=self,
@@ -144,10 +145,10 @@ class RelatedField(Field):
         return []
 
     def _check_relation_model_exists(self):
-        rel_is_missing = self.rel.to not in apps.get_models()
-        rel_is_string = isinstance(self.rel.to, six.string_types)
-        model_name = self.rel.to if rel_is_string else self.rel.to._meta.object_name
-        if rel_is_missing and (rel_is_string or not self.rel.to._meta.swapped):
+        rel_is_missing = self.remote_field.model not in apps.get_models()
+        rel_is_string = isinstance(self.remote_field.model, six.string_types)
+        model_name = self.remote_field.model if rel_is_string else self.remote_field.model._meta.object_name
+        if rel_is_missing and (rel_is_string or not self.remote_field.model._meta.swapped):
             return [
                 checks.Error(
                     ("Field defines a relation with model '%s', which "
@@ -160,18 +161,18 @@ class RelatedField(Field):
         return []
 
     def _check_referencing_to_swapped_model(self):
-        if (self.rel.to not in apps.get_models() and
-                not isinstance(self.rel.to, six.string_types) and
-                self.rel.to._meta.swapped):
+        if (self.remote_field.model not in apps.get_models() and
+                not isinstance(self.remote_field.model, six.string_types) and
+                self.remote_field.model._meta.swapped):
             model = "%s.%s" % (
-                self.rel.to._meta.app_label,
-                self.rel.to._meta.object_name
+                self.remote_field.model._meta.app_label,
+                self.remote_field.model._meta.object_name
             )
             return [
                 checks.Error(
                     ("Field defines a relation with the model '%s', "
                      "which has been swapped out.") % model,
-                    hint="Update the relation to point at 'settings.%s'." % self.rel.to._meta.swappable,
+                    hint="Update the relation to point at 'settings.%s'." % self.remote_field.model._meta.swappable,
                     obj=self,
                     id='fields.E301',
                 )
@@ -187,20 +188,15 @@ class RelatedField(Field):
         errors = []
         opts = self.model._meta
 
-        # `f.rel.to` may be a string instead of a model. Skip if model name is
+        # `f.remote_field.model` may be a string instead of a model. Skip if model name is
         # not resolved.
-        if not isinstance(self.rel.to, ModelBase):
+        if not isinstance(self.remote_field.model, ModelBase):
             return []
 
         # If the field doesn't install backward relation on the target model (so
         # `is_hidden` returns True), then there are no clashes to check and we
         # can skip these fields.
-        if self.rel.is_hidden():
-            return []
-
-        try:
-            self.rel
-        except AttributeError:
+        if self.remote_field.is_hidden():
             return []
 
         # Consider that we are checking field `Model.foreign` and the models
@@ -214,9 +210,9 @@ class RelatedField(Field):
         #         foreign = models.ForeignKey(Target)
         #         m2m = models.ManyToManyField(Target)
 
-        rel_opts = self.rel.to._meta
+        rel_opts = self.remote_field.model._meta
         # rel_opts.object_name == "Target"
-        rel_name = self.rel.get_accessor_name()  # i. e. "model_set"
+        rel_name = self.remote_field.get_accessor_name()  # i. e. "model_set"
         rel_query_name = self.related_query_name()  # i. e. "model"
         field_name = "%s.%s" % (opts.object_name,
             self.name)  # i. e. "Model.field"
@@ -289,28 +285,23 @@ class RelatedField(Field):
         return None
 
     def contribute_to_class(self, cls, name, virtual_only=False):
-        sup = super(RelatedField, self)
+
+        super(RelatedField, self).contribute_to_class(cls, name, virtual_only=virtual_only)
 
         self.opts = cls._meta
 
-        if hasattr(sup, 'contribute_to_class'):
-            sup.contribute_to_class(cls, name, virtual_only=virtual_only)
-
         if not cls._meta.abstract:
-            if self.rel.related_name:
-                related_name = force_text(self.rel.related_name) % {
+            if self.remote_field.related_name:
+                related_name = force_text(self.remote_field.related_name) % {
                     'class': cls.__name__.lower(),
                     'app_label': cls._meta.app_label.lower()
                 }
-                self.rel.related_name = related_name
-            other = self.rel.to
-            if isinstance(other, six.string_types) or other._meta.pk is None:
-                def resolve_related_class(field, model, cls):
-                    field.rel.to = model
-                    field.do_related_class(model, cls)
-                add_lazy_relation(cls, self, other, resolve_related_class)
-            else:
-                self.do_related_class(other, cls)
+                self.remote_field.related_name = related_name
+
+            def resolve_related_class(model, related, field):
+                field.remote_field.model = related
+                field.do_related_class(related, model)
+            lazy_related_operation(resolve_related_class, cls, self.remote_field.model, field=self)
 
     @property
     def swappable_setting(self):
@@ -320,12 +311,12 @@ class RelatedField(Field):
         """
         if self.swappable:
             # Work out string form of "to"
-            if isinstance(self.rel.to, six.string_types):
-                to_string = self.rel.to
+            if isinstance(self.remote_field.model, six.string_types):
+                to_string = self.remote_field.model
             else:
                 to_string = "%s.%s" % (
-                    self.rel.to._meta.app_label,
-                    self.rel.to._meta.object_name,
+                    self.remote_field.model._meta.app_label,
+                    self.remote_field.model._meta.object_name,
                 )
             # See if anything swapped/swappable matches
             for model in apps.get_models(include_swapped=True):
@@ -337,22 +328,21 @@ class RelatedField(Field):
         return None
 
     def set_attributes_from_rel(self):
-        self.name = self.name or (self.rel.to._meta.model_name + '_' + self.rel.to._meta.pk.name)
+        self.name = self.name or (self.remote_field.model._meta.model_name + '_' + self.remote_field.model._meta.pk.name)
         if self.verbose_name is None:
-            self.verbose_name = self.rel.to._meta.verbose_name
-        self.rel.set_field_name()
+            self.verbose_name = self.remote_field.model._meta.verbose_name
+        self.remote_field.set_field_name()
 
     @property
     def related(self):
         warnings.warn(
-            "Usage of field.related has been deprecated. Use field.rel instead.",
-            RemovedInDjango20Warning, 2)
-        return self.rel
+            "Usage of field.related has been deprecated. Use field.remote_field instead.",
+            RemovedInDjango110Warning, 2)
+        return self.remote_field
 
     def do_related_class(self, other, cls):
         self.set_attributes_from_rel()
-        if not cls._meta.abstract:
-            self.contribute_to_related_class(other, self.rel)
+        self.contribute_to_related_class(other, self.remote_field)
 
     def get_limit_choices_to(self):
         """
@@ -361,9 +351,9 @@ class RelatedField(Field):
         If it is a callable, it will be invoked and the result will be
         returned.
         """
-        if callable(self.rel.limit_choices_to):
-            return self.rel.limit_choices_to()
-        return self.rel.limit_choices_to
+        if callable(self.remote_field.limit_choices_to):
+            return self.remote_field.limit_choices_to()
+        return self.remote_field.limit_choices_to
 
     def formfield(self, **kwargs):
         """
@@ -374,11 +364,11 @@ class RelatedField(Field):
         being constructed.
         """
         defaults = {}
-        if hasattr(self.rel, 'get_related_field'):
+        if hasattr(self.remote_field, 'get_related_field'):
             # If this is a callable, do not invoke it here. Just pass
             # it in the defaults for when the form class will later be
             # instantiated.
-            limit_choices_to = self.rel.limit_choices_to
+            limit_choices_to = self.remote_field.limit_choices_to
             defaults.update({
                 'limit_choices_to': limit_choices_to,
             })
@@ -390,7 +380,19 @@ class RelatedField(Field):
         Define the name that can be used to identify this related object in a
         table-spanning query.
         """
-        return self.rel.related_query_name or self.rel.related_name or self.opts.model_name
+        return self.remote_field.related_query_name or self.remote_field.related_name or self.opts.model_name
+
+    @property
+    def target_field(self):
+        """
+        When filtering against this relation, returns the field on the remote
+        model against which the filtering should happen.
+        """
+        target_fields = self.get_path_info()[-1].target_fields
+        if len(target_fields) > 1:
+            raise exceptions.FieldError(
+                "The relation has multiple target fields, but only single target field was asked for")
+        return target_fields[0]
 
 
 class SingleRelatedObjectDescriptor(object):
@@ -550,11 +552,11 @@ class ReverseSingleRelatedObjectDescriptor(object):
     @cached_property
     def RelatedObjectDoesNotExist(self):
         # The exception can't be created at initialization time since the
-        # related model might not be resolved yet; `rel.to` might still be
+        # related model might not be resolved yet; `rel.model` might still be
         # a string model reference.
         return type(
             str('RelatedObjectDoesNotExist'),
-            (self.field.rel.to.DoesNotExist, AttributeError),
+            (self.field.remote_field.model.DoesNotExist, AttributeError),
             {}
         )
 
@@ -562,11 +564,11 @@ class ReverseSingleRelatedObjectDescriptor(object):
         return hasattr(instance, self.cache_name)
 
     def get_queryset(self, **hints):
-        manager = self.field.rel.to._default_manager
+        manager = self.field.remote_field.model._default_manager
         # If the related manager indicates that it should be used for
         # related fields, respect that.
         if not getattr(manager, 'use_for_related_fields', False):
-            manager = self.field.rel.to._base_manager
+            manager = self.field.remote_field.model._base_manager
         return manager.db_manager(hints=hints).all()
 
     def get_prefetch_queryset(self, instances, queryset=None):
@@ -585,7 +587,7 @@ class ReverseSingleRelatedObjectDescriptor(object):
         # (related_name ends with a '+'). Refs #21410.
         # The check for len(...) == 1 is a special case that allows the query
         # to be join-less and smaller. Refs #21760.
-        if self.field.rel.is_hidden() or len(self.field.foreign_related_fields) == 1:
+        if self.field.remote_field.is_hidden() or len(self.field.foreign_related_fields) == 1:
             query = {'%s__in' % related_field.name: set(instance_attr(inst)[0] for inst in instances)}
         else:
             query = {'%s__in' % self.field.related_query_name(): instances}
@@ -593,8 +595,8 @@ class ReverseSingleRelatedObjectDescriptor(object):
 
         # Since we're going to assign directly in the cache,
         # we must manage the reverse relation cache manually.
-        if not self.field.rel.multiple:
-            rel_obj_cache_name = self.field.rel.get_cache_name()
+        if not self.field.remote_field.multiple:
+            rel_obj_cache_name = self.field.remote_field.get_cache_name()
             for rel_obj in queryset:
                 instance = instances_dict[rel_obj_attr(rel_obj)]
                 setattr(rel_obj, rel_obj_cache_name, instance)
@@ -622,8 +624,8 @@ class ReverseSingleRelatedObjectDescriptor(object):
                     qs = qs.filter(extra_filter, **params)
                 # Assuming the database enforces foreign keys, this won't fail.
                 rel_obj = qs.get()
-                if not self.field.rel.multiple:
-                    setattr(rel_obj, self.field.rel.get_cache_name(), instance)
+                if not self.field.remote_field.multiple:
+                    setattr(rel_obj, self.field.remote_field.get_cache_name(), instance)
             setattr(instance, self.cache_name, rel_obj)
         if rel_obj is None and not self.field.null:
             raise self.RelatedObjectDoesNotExist(
@@ -640,13 +642,13 @@ class ReverseSingleRelatedObjectDescriptor(object):
                 'Cannot assign None: "%s.%s" does not allow null values.' %
                 (instance._meta.object_name, self.field.name)
             )
-        elif value is not None and not isinstance(value, self.field.rel.to):
+        elif value is not None and not isinstance(value, self.field.remote_field.model):
             raise ValueError(
                 'Cannot assign "%r": "%s.%s" must be a "%s" instance.' % (
                     value,
                     instance._meta.object_name,
                     self.field.name,
-                    self.field.rel.to._meta.object_name,
+                    self.field.remote_field.model._meta.object_name,
                 )
             )
         elif value is not None:
@@ -675,7 +677,7 @@ class ReverseSingleRelatedObjectDescriptor(object):
             # cache. This cache also might not exist if the related object
             # hasn't been accessed yet.
             if related is not None:
-                setattr(related, self.field.rel.get_cache_name(), None)
+                setattr(related, self.field.remote_field.get_cache_name(), None)
 
             for lh_field, rh_field in self.field.related_fields:
                 setattr(instance, lh_field.attname, None)
@@ -687,7 +689,7 @@ class ReverseSingleRelatedObjectDescriptor(object):
                 if not self.field.allow_unsaved_instance_assignment and pk is None:
                     raise ValueError(
                         'Cannot assign "%r": "%s" instance isn\'t saved in the database.' %
-                        (value, self.field.rel.to._meta.object_name)
+                        (value, self.field.remote_field.model._meta.object_name)
                     )
                 setattr(instance, lh_field.attname, getattr(value, rh_field.attname))
 
@@ -695,8 +697,8 @@ class ReverseSingleRelatedObjectDescriptor(object):
         # object caches now, too. This avoids another db hit if you get the
         # object you just set.
         setattr(instance, self.cache_name, value)
-        if value is not None and not self.field.rel.multiple:
-            setattr(value, self.field.rel.get_cache_name(), instance)
+        if value is not None and not self.field.remote_field.multiple:
+            setattr(value, self.field.remote_field.get_cache_name(), instance)
 
 
 def create_foreign_related_manager(superclass, rel):
@@ -763,16 +765,36 @@ def create_foreign_related_manager(superclass, rel):
             cache_name = self.field.related_query_name()
             return queryset, rel_obj_attr, instance_attr, False, cache_name
 
-        def add(self, *objs):
+        def add(self, *objs, **kwargs):
+            bulk = kwargs.pop('bulk', True)
             objs = list(objs)
             db = router.db_for_write(self.model, instance=self.instance)
-            with transaction.atomic(using=db, savepoint=False):
+
+            def check_and_update_obj(obj):
+                if not isinstance(obj, self.model):
+                    raise TypeError("'%s' instance expected, got %r" % (
+                        self.model._meta.object_name, obj,
+                    ))
+                setattr(obj, self.field.name, self.instance)
+
+            if bulk:
+                pks = []
                 for obj in objs:
-                    if not isinstance(obj, self.model):
-                        raise TypeError("'%s' instance expected, got %r" %
-                                        (self.model._meta.object_name, obj))
-                    setattr(obj, self.field.name, self.instance)
-                    obj.save()
+                    check_and_update_obj(obj)
+                    if obj._state.adding or obj._state.db != db:
+                        raise ValueError(
+                            "%r instance isn't saved. Use bulk=False or save "
+                            "the object first." % obj
+                        )
+                    pks.append(obj.pk)
+                self.model._base_manager.using(db).filter(pk__in=pks).update(**{
+                    self.field.name: self.instance,
+                })
+            else:
+                with transaction.atomic(using=db, savepoint=False):
+                    for obj in objs:
+                        check_and_update_obj(obj)
+                        obj.save()
         add.alters_data = True
 
         def create(self, **kwargs):
@@ -806,7 +828,7 @@ def create_foreign_related_manager(superclass, rel):
                     if self.field.get_local_related_value(obj) == val:
                         old_ids.add(obj.pk)
                     else:
-                        raise self.field.rel.to.DoesNotExist("%r is not related to %r." % (obj, self.instance))
+                        raise self.field.remote_field.model.DoesNotExist("%r is not related to %r." % (obj, self.instance))
                 self._clear(self.filter(pk__in=old_ids), bulk)
             remove.alters_data = True
 
@@ -833,6 +855,7 @@ def create_foreign_related_manager(superclass, rel):
             # could be affected by `manager.clear()`. Refs #19816.
             objs = tuple(objs)
 
+            bulk = kwargs.pop('bulk', True)
             clear = kwargs.pop('clear', False)
 
             if self.field.null:
@@ -840,7 +863,7 @@ def create_foreign_related_manager(superclass, rel):
                 with transaction.atomic(using=db, savepoint=False):
                     if clear:
                         self.clear()
-                        self.add(*objs)
+                        self.add(*objs, bulk=bulk)
                     else:
                         old_objs = set(self.using(db).all())
                         new_objs = []
@@ -850,10 +873,10 @@ def create_foreign_related_manager(superclass, rel):
                             else:
                                 new_objs.append(obj)
 
-                        self.remove(*old_objs)
-                        self.add(*new_objs)
+                        self.remove(*old_objs, bulk=bulk)
+                        self.add(*new_objs, bulk=bulk)
             else:
-                self.add(*objs)
+                self.add(*objs, bulk=bulk)
         set.alters_data = True
 
     return RelatedManager
@@ -908,7 +931,7 @@ def create_many_related_manager(superclass, rel, reverse):
             self.instance = instance
 
             if not reverse:
-                self.model = rel.to
+                self.model = rel.model
                 self.query_field_name = rel.field.related_query_name()
                 self.prefetch_cache_name = rel.field.name
                 self.source_field_name = rel.field.m2m_field_name()
@@ -1009,7 +1032,10 @@ def create_many_related_manager(superclass, rel, reverse):
                     getattr(result, '_prefetch_related_val_%s' % f.attname)
                     for f in fk.local_related_fields
                 ),
-                lambda inst: tuple(getattr(inst, f.attname) for f in fk.foreign_related_fields),
+                lambda inst: tuple(
+                    f.get_db_prep_value(getattr(inst, f.attname), connection)
+                    for f in fk.foreign_related_fields
+                ),
                 False,
                 self.prefetch_cache_name,
             )
@@ -1079,7 +1105,7 @@ def create_many_related_manager(superclass, rel, reverse):
                     self.clear()
                     self.add(*objs)
                 else:
-                    old_ids = set(self.using(db).values_list(self.target_field.related_field.attname, flat=True))
+                    old_ids = set(self.using(db).values_list(self.target_field.target_field.attname, flat=True))
 
                     new_objs = []
                     for obj in objs:
@@ -1221,7 +1247,7 @@ def create_many_related_manager(superclass, rel, reverse):
                 target_model_qs = super(ManyRelatedManager, self).get_queryset()
                 if target_model_qs._has_filters():
                     old_vals = target_model_qs.using(db).filter(**{
-                        '%s__in' % self.target_field.related_field.attname: old_ids})
+                        '%s__in' % self.target_field.target_field.attname: old_ids})
                 else:
                     old_vals = old_ids
                 filters = self._build_remove_filters(old_vals)
@@ -1262,7 +1288,7 @@ class ManyRelatedObjectsDescriptor(ForeignRelatedObjectsDescriptor):
 
     @cached_property
     def related_manager_cls(self):
-        model = self.rel.related_model if self.reverse else self.rel.to
+        model = self.rel.related_model if self.reverse else self.rel.model
         return create_many_related_manager(
             model._default_manager.__class__,
             self.rel,
@@ -1284,10 +1310,14 @@ class ForeignObjectRel(object):
     editable = False
     is_relation = True
 
+    # Reverse relations are always nullable (Django can't enforce that a
+    # foreign key on the related model points to this model).
+    null = True
+
     def __init__(self, field, to, related_name=None, related_query_name=None,
             limit_choices_to=None, parent_link=False, on_delete=None):
         self.field = field
-        self.to = to
+        self.model = to
         self.related_name = related_name
         self.related_query_name = related_query_name
         self.limit_choices_to = {} if limit_choices_to is None else limit_choices_to
@@ -1301,9 +1331,13 @@ class ForeignObjectRel(object):
     # __init__ as the field doesn't have its model yet. Calling these methods
     # before field.contribute_to_class() has been called will result in
     # AttributeError
-    @cached_property
-    def model(self):
-        return self.to
+    @property
+    def to(self):
+        warnings.warn(
+            "Usage of ForeignObjectRel.to attribute has been deprecated. "
+            "Use the model attribute instead.",
+            RemovedInDjango20Warning, 2)
+        return self.model
 
     @cached_property
     def hidden(self):
@@ -1312,6 +1346,21 @@ class ForeignObjectRel(object):
     @cached_property
     def name(self):
         return self.field.related_query_name()
+
+    @property
+    def remote_field(self):
+        return self.field
+
+    @property
+    def target_field(self):
+        """
+        When filtering against this relation, returns the field on the remote
+        model against which the filtering should happen.
+        """
+        target_fields = self.get_path_info()[-1].target_fields
+        if len(target_fields) > 1:
+            raise exceptions.FieldError("Can't use target_field for multicolumn relations.")
+        return target_fields[0]
 
     @cached_property
     def related_model(self):
@@ -1335,6 +1384,19 @@ class ForeignObjectRel(object):
     @cached_property
     def one_to_one(self):
         return self.field.one_to_one
+
+    def get_prep_lookup(self, lookup_name, value):
+        return self.field.get_prep_lookup(lookup_name, value)
+
+    def get_lookup(self, lookup_name):
+        return self.field.get_lookup(lookup_name)
+
+    def get_internal_type(self):
+        return self.field.get_internal_type()
+
+    @property
+    def db_type(self):
+        return self.field.db_type
 
     def __repr__(self):
         return '<%s: %s.%s>' % (
@@ -1396,7 +1458,7 @@ class ForeignObjectRel(object):
         model = model or self.related_model
         if self.multiple:
             # If this is a symmetrical m2m relation on self, there is no reverse accessor.
-            if self.symmetrical and model == self.to:
+            if self.symmetrical and model == self.model:
                 return None
         if self.related_name:
             return self.related_name
@@ -1442,18 +1504,23 @@ class ManyToOneRel(ForeignObjectRel):
 
         self.field_name = field_name
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop('related_model', None)
+        return state
+
     def get_related_field(self):
         """
         Return the Field in the 'to' object to which this relationship is tied.
         """
-        field = self.to._meta.get_field(self.field_name)
+        field = self.model._meta.get_field(self.field_name)
         if not field.concrete:
             raise FieldDoesNotExist("No related field named '%s'" %
                     self.field_name)
         return field
 
     def set_field_name(self):
-        self.field_name = self.field_name or self.to._meta.pk.name
+        self.field_name = self.field_name or self.model._meta.pk.name
 
 
 class OneToOneRel(ManyToOneRel):
@@ -1517,8 +1584,8 @@ class ManyToManyRel(ForeignObjectRel):
             field = opts.get_field(self.through_fields[0])
         else:
             for field in opts.fields:
-                rel = getattr(field, 'rel', None)
-                if rel and rel.to == self.to:
+                rel = getattr(field, 'remote_field', None)
+                if rel and rel.model == self.model:
                     break
         return field.foreign_related_fields[0]
 
@@ -1539,9 +1606,10 @@ class ForeignObject(RelatedField):
     related_accessor_class = ForeignRelatedObjectsDescriptor
     rel_class = ForeignObjectRel
 
-    def __init__(self, to, from_fields, to_fields, rel=None, related_name=None,
+    def __init__(self, to, on_delete, from_fields, to_fields, rel=None, related_name=None,
             related_query_name=None, limit_choices_to=None, parent_link=False,
-            on_delete=CASCADE, swappable=True, **kwargs):
+            swappable=True, **kwargs):
+
         if rel is None:
             rel = self.rel_class(
                 self, to,
@@ -1564,7 +1632,7 @@ class ForeignObject(RelatedField):
         return errors
 
     def _check_unique_target(self):
-        rel_is_string = isinstance(self.rel.to, six.string_types)
+        rel_is_string = isinstance(self.remote_field.model, six.string_types)
         if rel_is_string or not self.requires_unique_target:
             return []
 
@@ -1573,17 +1641,12 @@ class ForeignObject(RelatedField):
         except FieldDoesNotExist:
             return []
 
-        try:
-            self.rel
-        except AttributeError:
-            return []
-
         has_unique_field = any(rel_field.unique
             for rel_field in self.foreign_related_fields)
         if not has_unique_field and len(self.foreign_related_fields) > 1:
             field_combination = ', '.join("'%s'" % rel_field.name
                 for rel_field in self.foreign_related_fields)
-            model_name = self.rel.to.__name__
+            model_name = self.remote_field.model.__name__
             return [
                 checks.Error(
                     "None of the fields %s on model '%s' have a unique=True constraint."
@@ -1595,7 +1658,7 @@ class ForeignObject(RelatedField):
             ]
         elif not has_unique_field:
             field_name = self.foreign_related_fields[0].name
-            model_name = self.rel.to.__name__
+            model_name = self.remote_field.model.__name__
             return [
                 checks.Error(
                     ("'%s.%s' must set unique=True "
@@ -1610,21 +1673,21 @@ class ForeignObject(RelatedField):
 
     def deconstruct(self):
         name, path, args, kwargs = super(ForeignObject, self).deconstruct()
+        kwargs['on_delete'] = self.remote_field.on_delete
         kwargs['from_fields'] = self.from_fields
         kwargs['to_fields'] = self.to_fields
-        if self.rel.related_name is not None:
-            kwargs['related_name'] = self.rel.related_name
-        if self.rel.related_query_name is not None:
-            kwargs['related_query_name'] = self.rel.related_query_name
-        if self.rel.on_delete != CASCADE:
-            kwargs['on_delete'] = self.rel.on_delete
-        if self.rel.parent_link:
-            kwargs['parent_link'] = self.rel.parent_link
+
+        if self.remote_field.related_name is not None:
+            kwargs['related_name'] = self.remote_field.related_name
+        if self.remote_field.related_query_name is not None:
+            kwargs['related_query_name'] = self.remote_field.related_query_name
+        if self.remote_field.parent_link:
+            kwargs['parent_link'] = self.remote_field.parent_link
         # Work out string form of "to"
-        if isinstance(self.rel.to, six.string_types):
-            kwargs['to'] = self.rel.to
+        if isinstance(self.remote_field.model, six.string_types):
+            kwargs['to'] = self.remote_field.model
         else:
-            kwargs['to'] = "%s.%s" % (self.rel.to._meta.app_label, self.rel.to._meta.object_name)
+            kwargs['to'] = "%s.%s" % (self.remote_field.model._meta.app_label, self.remote_field.model._meta.object_name)
         # If swappable is True, then see if we're actually pointing to the target
         # of a swap.
         swappable_setting = self.swappable_setting
@@ -1648,16 +1711,16 @@ class ForeignObject(RelatedField):
     def resolve_related_fields(self):
         if len(self.from_fields) < 1 or len(self.from_fields) != len(self.to_fields):
             raise ValueError('Foreign Object from and to fields must be the same non-zero length')
-        if isinstance(self.rel.to, six.string_types):
-            raise ValueError('Related model %r cannot be resolved' % self.rel.to)
+        if isinstance(self.remote_field.model, six.string_types):
+            raise ValueError('Related model %r cannot be resolved' % self.remote_field.model)
         related_fields = []
         for index in range(len(self.from_fields)):
             from_field_name = self.from_fields[index]
             to_field_name = self.to_fields[index]
             from_field = (self if from_field_name == 'self'
                           else self.opts.get_field(from_field_name))
-            to_field = (self.rel.to._meta.pk if to_field_name is None
-                        else self.rel.to._meta.get_field(to_field_name))
+            to_field = (self.remote_field.model._meta.pk if to_field_name is None
+                        else self.remote_field.model._meta.get_field(to_field_name))
             related_fields.append((from_field, to_field))
         return related_fields
 
@@ -1747,7 +1810,7 @@ class ForeignObject(RelatedField):
         """
         Get path from this field to the related model.
         """
-        opts = self.rel.to._meta
+        opts = self.remote_field.model._meta
         from_opts = self.model._meta
         return [PathInfo(from_opts, opts, self.foreign_related_fields, self, False, True)]
 
@@ -1756,66 +1819,29 @@ class ForeignObject(RelatedField):
         Get path from the related model to this field's model.
         """
         opts = self.model._meta
-        from_opts = self.rel.to._meta
-        pathinfos = [PathInfo(from_opts, opts, (opts.pk,), self.rel, not self.unique, False)]
+        from_opts = self.remote_field.model._meta
+        pathinfos = [PathInfo(from_opts, opts, (opts.pk,), self.remote_field, not self.unique, False)]
         return pathinfos
 
-    def get_lookup_constraint(self, constraint_class, alias, targets, sources, lookups,
-                              raw_value):
-        from django.db.models.sql.where import SubqueryConstraint, AND, OR
-        root_constraint = constraint_class()
-        assert len(targets) == len(sources)
-        if len(lookups) > 1:
-            raise exceptions.FieldError('Relation fields do not support nested lookups')
-        lookup_type = lookups[0]
+    def get_lookup(self, lookup_name):
+        if lookup_name == 'in':
+            return RelatedIn
+        elif lookup_name == 'exact':
+            return RelatedExact
+        elif lookup_name == 'gt':
+            return RelatedGreaterThan
+        elif lookup_name == 'gte':
+            return RelatedGreaterThanOrEqual
+        elif lookup_name == 'lt':
+            return RelatedLessThan
+        elif lookup_name == 'lte':
+            return RelatedLessThanOrEqual
+        elif lookup_name != 'isnull':
+            raise TypeError('Related Field got invalid lookup: %s' % lookup_name)
+        return super(ForeignObject, self).get_lookup(lookup_name)
 
-        def get_normalized_value(value):
-            from django.db.models import Model
-            if isinstance(value, Model):
-                value_list = []
-                for source in sources:
-                    # Account for one-to-one relations when sent a different model
-                    while not isinstance(value, source.model) and source.rel:
-                        source = source.rel.to._meta.get_field(source.rel.field_name)
-                    value_list.append(getattr(value, source.attname))
-                return tuple(value_list)
-            elif not isinstance(value, tuple):
-                return (value,)
-            return value
-
-        is_multicolumn = len(self.related_fields) > 1
-        if (hasattr(raw_value, '_as_sql') or
-                hasattr(raw_value, 'get_compiler')):
-            root_constraint.add(SubqueryConstraint(alias, [target.column for target in targets],
-                                                   [source.name for source in sources], raw_value),
-                                AND)
-        elif lookup_type == 'isnull':
-            root_constraint.add(IsNull(targets[0].get_col(alias, sources[0]), raw_value), AND)
-        elif (lookup_type == 'exact' or (lookup_type in ['gt', 'lt', 'gte', 'lte']
-                                         and not is_multicolumn)):
-            value = get_normalized_value(raw_value)
-            for target, source, val in zip(targets, sources, value):
-                lookup_class = target.get_lookup(lookup_type)
-                root_constraint.add(
-                    lookup_class(target.get_col(alias, source), val), AND)
-        elif lookup_type in ['range', 'in'] and not is_multicolumn:
-            values = [get_normalized_value(value) for value in raw_value]
-            value = [val[0] for val in values]
-            lookup_class = targets[0].get_lookup(lookup_type)
-            root_constraint.add(lookup_class(targets[0].get_col(alias, sources[0]), value), AND)
-        elif lookup_type == 'in':
-            values = [get_normalized_value(value) for value in raw_value]
-            root_constraint.connector = OR
-            for value in values:
-                value_constraint = constraint_class()
-                for source, target, val in zip(sources, targets, value):
-                    lookup_class = target.get_lookup('exact')
-                    lookup = lookup_class(target.get_col(alias, source), val)
-                    value_constraint.add(lookup, AND)
-                root_constraint.add(value_constraint, OR)
-        else:
-            raise TypeError('Related Field got invalid lookup: %s' % lookup_type)
-        return root_constraint
+    def get_transform(self, *args, **kwargs):
+        raise NotImplementedError('Relational fields do not support transforms.')
 
     @property
     def attnames(self):
@@ -1831,13 +1857,13 @@ class ForeignObject(RelatedField):
     def contribute_to_related_class(self, cls, related):
         # Internal FK's - i.e., those with a related name ending with '+' -
         # and swapped models don't get a related descriptor.
-        if not self.rel.is_hidden() and not related.related_model._meta.swapped:
+        if not self.remote_field.is_hidden() and not related.related_model._meta.swapped:
             setattr(cls, related.get_accessor_name(), self.related_accessor_class(related))
             # While 'limit_choices_to' might be a callable, simply pass
             # it along for later - this is too early because it's still
             # model load time.
-            if self.rel.limit_choices_to:
-                cls._meta.related_fkey_lookups.append(self.rel.limit_choices_to)
+            if self.remote_field.limit_choices_to:
+                cls._meta.related_fkey_lookups.append(self.remote_field.limit_choices_to)
 
 
 class ForeignKey(ForeignObject):
@@ -1863,8 +1889,8 @@ class ForeignKey(ForeignObject):
     }
     description = _("Foreign Key (type determined by related field)")
 
-    def __init__(self, to, to_field=None, related_name=None, related_query_name=None,
-            limit_choices_to=None, parent_link=False, on_delete=CASCADE,
+    def __init__(self, to, on_delete=None, related_name=None, related_query_name=None,
+            limit_choices_to=None, parent_link=False, to_field=None,
             db_constraint=True, **kwargs):
         try:
             to._meta.model_name
@@ -1882,6 +1908,28 @@ class ForeignKey(ForeignObject):
             # be correct until contribute_to_class is called. Refs #12190.
             to_field = to_field or (to._meta.pk and to._meta.pk.name)
 
+        if on_delete is None:
+            warnings.warn(
+                "on_delete will be a required arg for %s in Django 2.0. "
+                "Set it to models.CASCADE if you want to maintain the current default behavior. "
+                "See https://docs.djangoproject.com/en/%s/ref/models/fields/"
+                "#django.db.models.ForeignKey.on_delete" % (
+                    self.__class__.__name__,
+                    get_docs_version(),
+                ),
+                RemovedInDjango20Warning, 2)
+            on_delete = CASCADE
+
+        elif not callable(on_delete):
+            warnings.warn(
+                "The signature for {0} will change in Django 2.0. "
+                "Pass to_field='{1}' as a kwarg instead of as an arg.".format(
+                    self.__class__.__name__,
+                    on_delete,
+                ),
+                RemovedInDjango20Warning, 2)
+            on_delete, to_field = to_field, on_delete
+
         kwargs['rel'] = self.rel_class(
             self, to, to_field,
             related_name=related_name,
@@ -1894,7 +1942,7 @@ class ForeignKey(ForeignObject):
         kwargs['db_index'] = kwargs.get('db_index', True)
 
         super(ForeignKey, self).__init__(
-            to, from_fields=['self'], to_fields=[to_field], **kwargs)
+            to, on_delete, from_fields=['self'], to_fields=[to_field], **kwargs)
 
         self.db_constraint = db_constraint
 
@@ -1905,7 +1953,7 @@ class ForeignKey(ForeignObject):
         return errors
 
     def _check_on_delete(self):
-        on_delete = getattr(self.rel, 'on_delete', None)
+        on_delete = getattr(self.remote_field, 'on_delete', None)
         if on_delete == SET_NULL and not self.null:
             return [
                 checks.Error(
@@ -1949,13 +1997,13 @@ class ForeignKey(ForeignObject):
         if self.db_constraint is not True:
             kwargs['db_constraint'] = self.db_constraint
         # Rel needs more work.
-        to_meta = getattr(self.rel.to, "_meta", None)
-        if self.rel.field_name and (not to_meta or (to_meta.pk and self.rel.field_name != to_meta.pk.name)):
-            kwargs['to_field'] = self.rel.field_name
+        to_meta = getattr(self.remote_field.model, "_meta", None)
+        if self.remote_field.field_name and (not to_meta or (to_meta.pk and self.remote_field.field_name != to_meta.pk.name)):
+            kwargs['to_field'] = self.remote_field.field_name
         return name, path, args, kwargs
 
     @property
-    def related_field(self):
+    def target_field(self):
         return self.foreign_related_fields[0]
 
     def get_reverse_path_info(self):
@@ -1963,20 +2011,20 @@ class ForeignKey(ForeignObject):
         Get path from the related model to this field's model.
         """
         opts = self.model._meta
-        from_opts = self.rel.to._meta
-        pathinfos = [PathInfo(from_opts, opts, (opts.pk,), self.rel, not self.unique, False)]
+        from_opts = self.remote_field.model._meta
+        pathinfos = [PathInfo(from_opts, opts, (opts.pk,), self.remote_field, not self.unique, False)]
         return pathinfos
 
     def validate(self, value, model_instance):
-        if self.rel.parent_link:
+        if self.remote_field.parent_link:
             return
         super(ForeignKey, self).validate(value, model_instance)
         if value is None:
             return
 
         using = router.db_for_read(model_instance.__class__, instance=model_instance)
-        qs = self.rel.to._default_manager.using(using).filter(
-            **{self.rel.field_name: value}
+        qs = self.remote_field.model._default_manager.using(using).filter(
+            **{self.remote_field.field_name: value}
         )
         qs = qs.complex_filter(self.get_limit_choices_to())
         if not qs.exists():
@@ -1984,8 +2032,8 @@ class ForeignKey(ForeignObject):
                 self.error_messages['invalid'],
                 code='invalid',
                 params={
-                    'model': self.rel.to._meta.verbose_name, 'pk': value,
-                    'field': self.rel.field_name, 'value': value,
+                    'model': self.remote_field.model._meta.verbose_name, 'pk': value,
+                    'field': self.remote_field.field_name, 'value': value,
                 },  # 'pk' is included for backwards compatibility
             )
 
@@ -2000,17 +2048,20 @@ class ForeignKey(ForeignObject):
     def get_default(self):
         "Here we check if the default value is an object and return the to_field if so."
         field_default = super(ForeignKey, self).get_default()
-        if isinstance(field_default, self.rel.to):
-            return getattr(field_default, self.related_field.attname)
+        if isinstance(field_default, self.remote_field.model):
+            return getattr(field_default, self.target_field.attname)
         return field_default
 
     def get_db_prep_save(self, value, connection):
         if value is None or (value == '' and
-                             (not self.related_field.empty_strings_allowed or
+                             (not self.target_field.empty_strings_allowed or
                               connection.features.interprets_empty_strings_as_nulls)):
             return None
         else:
-            return self.related_field.get_db_prep_save(value, connection=connection)
+            return self.target_field.get_db_prep_save(value, connection=connection)
+
+    def get_db_prep_value(self, value, connection, prepared=False):
+        return self.target_field.get_db_prep_value(value, connection, prepared)
 
     def value_to_string(self, obj):
         if not obj:
@@ -2026,19 +2077,19 @@ class ForeignKey(ForeignObject):
 
     def contribute_to_related_class(self, cls, related):
         super(ForeignKey, self).contribute_to_related_class(cls, related)
-        if self.rel.field_name is None:
-            self.rel.field_name = cls._meta.pk.name
+        if self.remote_field.field_name is None:
+            self.remote_field.field_name = cls._meta.pk.name
 
     def formfield(self, **kwargs):
         db = kwargs.pop('using', None)
-        if isinstance(self.rel.to, six.string_types):
+        if isinstance(self.remote_field.model, six.string_types):
             raise ValueError("Cannot create form field for %r yet, because "
                              "its related model %r has not been loaded yet" %
-                             (self.name, self.rel.to))
+                             (self.name, self.remote_field.model))
         defaults = {
             'form_class': forms.ModelChoiceField,
-            'queryset': self.rel.to._default_manager.using(db),
-            'to_field_name': self.rel.field_name,
+            'queryset': self.remote_field.model._default_manager.using(db),
+            'to_field_name': self.remote_field.field_name,
         }
         defaults.update(kwargs)
         return super(ForeignKey, self).formfield(**defaults)
@@ -2050,7 +2101,7 @@ class ForeignKey(ForeignObject):
         # in which case the column type is simply that of an IntegerField.
         # If the database needs similar types for key fields however, the only
         # thing we can do is making AutoField an IntegerField.
-        rel_field = self.related_field
+        rel_field = self.target_field
         if (isinstance(rel_field, AutoField) or
                 (not connection.features.related_fields_match_type and
                 isinstance(rel_field, (PositiveIntegerField,
@@ -2073,7 +2124,7 @@ class ForeignKey(ForeignObject):
         return converters
 
     def get_col(self, alias, output_field=None):
-        return super(ForeignKey, self).get_col(alias, output_field or self.related_field)
+        return super(ForeignKey, self).get_col(alias, output_field or self.target_field)
 
 
 class OneToOneField(ForeignKey):
@@ -2095,10 +2146,33 @@ class OneToOneField(ForeignKey):
 
     description = _("One-to-one relationship")
 
-    def __init__(self, to, to_field=None, **kwargs):
+    def __init__(self, to, on_delete=None, to_field=None, **kwargs):
         kwargs['unique'] = True
-        kwargs.setdefault('null', False)
-        super(OneToOneField, self).__init__(to, to_field, **kwargs)
+
+        if on_delete is None:
+            warnings.warn(
+                "on_delete will be a required arg for %s in Django 2.0. "
+                "Set it to models.CASCADE if you want to maintain the current default behavior. "
+                "See https://docs.djangoproject.com/en/%s/ref/models/fields/"
+                "#django.db.models.ForeignKey.on_delete" % (
+                    self.__class__.__name__,
+                    get_docs_version(),
+                ),
+                RemovedInDjango20Warning, 2)
+            on_delete = CASCADE
+
+        elif not callable(on_delete):
+            warnings.warn(
+                "The signature for {0} will change in Django 2.0. "
+                "Pass to_field='{1}' as a kwarg instead of as an arg.".format(
+                    self.__class__.__name__,
+                    on_delete,
+                ),
+                RemovedInDjango20Warning, 2)
+            to_field = on_delete
+            on_delete = CASCADE  # Avoid warning in superclass
+
+        super(OneToOneField, self).__init__(to, on_delete, to_field=to_field, **kwargs)
 
     def deconstruct(self):
         name, path, args, kwargs = super(OneToOneField, self).deconstruct()
@@ -2107,12 +2181,12 @@ class OneToOneField(ForeignKey):
         return name, path, args, kwargs
 
     def formfield(self, **kwargs):
-        if self.rel.parent_link:
+        if self.remote_field.parent_link:
             return None
         return super(OneToOneField, self).formfield(**kwargs)
 
     def save_form_data(self, instance, data):
-        if isinstance(data, self.rel.to):
+        if isinstance(data, self.remote_field.model):
             setattr(instance, self.name, data)
         else:
             setattr(instance, self.attname, data)
@@ -2124,32 +2198,22 @@ class OneToOneField(ForeignKey):
 
 def create_many_to_many_intermediary_model(field, klass):
     from django.db import models
-    managed = True
-    if isinstance(field.rel.to, six.string_types) and field.rel.to != RECURSIVE_RELATIONSHIP_CONSTANT:
-        to_model = field.rel.to
-        to = to_model.split('.')[-1]
 
-        def set_managed(field, model, cls):
-            field.rel.through._meta.managed = model._meta.managed or cls._meta.managed
-        add_lazy_relation(klass, field, to_model, set_managed)
-    elif isinstance(field.rel.to, six.string_types):
-        to = klass._meta.object_name
-        to_model = klass
-        managed = klass._meta.managed
-    else:
-        to = field.rel.to._meta.object_name
-        to_model = field.rel.to
-        managed = klass._meta.managed or to_model._meta.managed
+    def set_managed(model, related, through):
+        through._meta.managed = model._meta.managed or related._meta.managed
+
+    to_model = resolve_relation(klass, field.remote_field.model)
     name = '%s_%s' % (klass._meta.object_name, field.name)
-    if field.rel.to == RECURSIVE_RELATIONSHIP_CONSTANT or to == klass._meta.object_name:
-        from_ = 'from_%s' % to.lower()
-        to = 'to_%s' % to.lower()
-    else:
-        from_ = klass._meta.model_name
-        to = to.lower()
+    lazy_related_operation(set_managed, klass, to_model, name)
+
+    to = make_model_tuple(to_model)[1]
+    from_ = klass._meta.model_name
+    if to == from_:
+        to = 'to_%s' % to
+        from_ = 'from_%s' % from_
+
     meta = type(str('Meta'), (object,), {
         'db_table': field._get_m2m_db_table(klass._meta),
-        'managed': managed,
         'auto_created': klass,
         'app_label': klass._meta.app_label,
         'db_tablespace': klass._meta.db_tablespace,
@@ -2166,13 +2230,15 @@ def create_many_to_many_intermediary_model(field, klass):
             klass,
             related_name='%s+' % name,
             db_tablespace=field.db_tablespace,
-            db_constraint=field.rel.db_constraint,
+            db_constraint=field.remote_field.db_constraint,
+            on_delete=CASCADE,
         ),
         to: models.ForeignKey(
             to_model,
             related_name='%s+' % name,
             db_tablespace=field.db_tablespace,
-            db_constraint=field.rel.db_constraint,
+            db_constraint=field.remote_field.db_constraint,
+            on_delete=CASCADE,
         )
     })
 
@@ -2231,13 +2297,14 @@ class ManyToManyField(RelatedField):
             through_fields=through_fields,
             db_constraint=db_constraint,
         )
-
-        kwargs.setdefault('null', False)
+        self.has_null_arg = 'null' in kwargs
 
         super(ManyToManyField, self).__init__(**kwargs)
 
         self.db_table = db_table
         self.swappable = swappable
+        # Many-to-many fields are always nullable.
+        self.null = True
 
     def check(self, **kwargs):
         errors = super(ManyToManyField, self).check(**kwargs)
@@ -2261,7 +2328,7 @@ class ManyToManyField(RelatedField):
     def _check_ignored_options(self, **kwargs):
         warnings = []
 
-        if self.null:
+        if self.has_null_arg:
             warnings.append(
                 checks.Warning(
                     'null has no effect on ManyToManyField.',
@@ -2284,15 +2351,15 @@ class ManyToManyField(RelatedField):
         return warnings
 
     def _check_relationship_model(self, from_model=None, **kwargs):
-        if hasattr(self.rel.through, '_meta'):
+        if hasattr(self.remote_field.through, '_meta'):
             qualified_model_name = "%s.%s" % (
-                self.rel.through._meta.app_label, self.rel.through.__name__)
+                self.remote_field.through._meta.app_label, self.remote_field.through.__name__)
         else:
-            qualified_model_name = self.rel.through
+            qualified_model_name = self.remote_field.through
 
         errors = []
 
-        if self.rel.through not in apps.get_models(include_auto_created=True):
+        if self.remote_field.through not in apps.get_models(include_auto_created=True):
             # The relationship model is not installed.
             errors.append(
                 checks.Error(
@@ -2314,18 +2381,18 @@ class ManyToManyField(RelatedField):
             )
 
             # Set some useful local variables
-            to_model = self.rel.to
+            to_model = resolve_relation(from_model, self.remote_field.model)
             from_model_name = from_model._meta.object_name
             if isinstance(to_model, six.string_types):
                 to_model_name = to_model
             else:
                 to_model_name = to_model._meta.object_name
-            relationship_model_name = self.rel.through._meta.object_name
+            relationship_model_name = self.remote_field.through._meta.object_name
             self_referential = from_model == to_model
 
             # Check symmetrical attribute.
-            if (self_referential and self.rel.symmetrical and
-                    not self.rel.through._meta.auto_created):
+            if (self_referential and self.remote_field.symmetrical and
+                    not self.remote_field.through._meta.auto_created):
                 errors.append(
                     checks.Error(
                         'Many-to-many fields with intermediate tables must not be symmetrical.',
@@ -2337,10 +2404,10 @@ class ManyToManyField(RelatedField):
 
             # Count foreign keys in intermediate model
             if self_referential:
-                seen_self = sum(from_model == getattr(field.rel, 'to', None)
-                    for field in self.rel.through._meta.fields)
+                seen_self = sum(from_model == getattr(field.remote_field, 'model', None)
+                    for field in self.remote_field.through._meta.fields)
 
-                if seen_self > 2 and not self.rel.through_fields:
+                if seen_self > 2 and not self.remote_field.through_fields:
                     errors.append(
                         checks.Error(
                             ("The model is used as an intermediate model by "
@@ -2350,19 +2417,19 @@ class ManyToManyField(RelatedField):
                              "through_fields keyword argument.") % (self, from_model_name),
                             hint=("Use through_fields to specify which two "
                                   "foreign keys Django should use."),
-                            obj=self.rel.through,
+                            obj=self.remote_field.through,
                             id='fields.E333',
                         )
                     )
 
             else:
                 # Count foreign keys in relationship model
-                seen_from = sum(from_model == getattr(field.rel, 'to', None)
-                    for field in self.rel.through._meta.fields)
-                seen_to = sum(to_model == getattr(field.rel, 'to', None)
-                    for field in self.rel.through._meta.fields)
+                seen_from = sum(from_model == getattr(field.remote_field, 'model', None)
+                    for field in self.remote_field.through._meta.fields)
+                seen_to = sum(to_model == getattr(field.remote_field, 'model', None)
+                    for field in self.remote_field.through._meta.fields)
 
-                if seen_from > 1 and not self.rel.through_fields:
+                if seen_from > 1 and not self.remote_field.through_fields:
                     errors.append(
                         checks.Error(
                             ("The model is used as an intermediate model by "
@@ -2378,7 +2445,7 @@ class ManyToManyField(RelatedField):
                         )
                     )
 
-                if seen_to > 1 and not self.rel.through_fields:
+                if seen_to > 1 and not self.remote_field.through_fields:
                     errors.append(
                         checks.Error(
                             ("The model is used as an intermediate model by "
@@ -2402,17 +2469,17 @@ class ManyToManyField(RelatedField):
                                 self, from_model_name, to_model_name
                             ),
                             hint=None,
-                            obj=self.rel.through,
+                            obj=self.remote_field.through,
                             id='fields.E336',
                         )
                     )
 
         # Validate `through_fields`.
-        if self.rel.through_fields is not None:
+        if self.remote_field.through_fields is not None:
             # Validate that we're given an iterable of at least two items
             # and that none of them is "falsy".
-            if not (len(self.rel.through_fields) >= 2 and
-                    self.rel.through_fields[0] and self.rel.through_fields[1]):
+            if not (len(self.remote_field.through_fields) >= 2 and
+                    self.remote_field.through_fields[0] and self.remote_field.through_fields[1]):
                 errors.append(
                     checks.Error(
                         ("Field specifies 'through_fields' but does not "
@@ -2436,15 +2503,15 @@ class ManyToManyField(RelatedField):
                     "where the field is attached to."
                 )
 
-                source, through, target = from_model, self.rel.through, self.rel.to
-                source_field_name, target_field_name = self.rel.through_fields[:2]
+                source, through, target = from_model, self.remote_field.through, self.remote_field.model
+                source_field_name, target_field_name = self.remote_field.through_fields[:2]
 
                 for field_name, related_model in ((source_field_name, source),
                                                   (target_field_name, target)):
 
                     possible_field_names = []
                     for f in through._meta.fields:
-                        if hasattr(f, 'rel') and getattr(f.rel, 'to', None) == related_model:
+                        if hasattr(f, 'remote_field') and getattr(f.remote_field, 'model', None) == related_model:
                             possible_field_names.append(f.name)
                     if possible_field_names:
                         hint = ("Did you mean one of the following foreign "
@@ -2466,8 +2533,8 @@ class ManyToManyField(RelatedField):
                             )
                         )
                     else:
-                        if not (hasattr(field, 'rel') and
-                                getattr(field.rel, 'to', None) == related_model):
+                        if not (hasattr(field, 'remote_field') and
+                                getattr(field.remote_field, 'model', None) == related_model):
                             errors.append(
                                 checks.Error(
                                     "'%s.%s' is not a foreign key to '%s'." % (
@@ -2484,24 +2551,31 @@ class ManyToManyField(RelatedField):
     def deconstruct(self):
         name, path, args, kwargs = super(ManyToManyField, self).deconstruct()
         # Handle the simpler arguments.
+        del kwargs["null"]
         if self.db_table is not None:
             kwargs['db_table'] = self.db_table
-        if self.rel.db_constraint is not True:
-            kwargs['db_constraint'] = self.rel.db_constraint
-        if self.rel.related_name is not None:
-            kwargs['related_name'] = self.rel.related_name
-        if self.rel.related_query_name is not None:
-            kwargs['related_query_name'] = self.rel.related_query_name
+        if self.remote_field.db_constraint is not True:
+            kwargs['db_constraint'] = self.remote_field.db_constraint
+        if self.remote_field.related_name is not None:
+            kwargs['related_name'] = self.remote_field.related_name
+        if self.remote_field.related_query_name is not None:
+            kwargs['related_query_name'] = self.remote_field.related_query_name
         # Rel needs more work.
-        if isinstance(self.rel.to, six.string_types):
-            kwargs['to'] = self.rel.to
+        if isinstance(self.remote_field.model, six.string_types):
+            kwargs['to'] = self.remote_field.model
         else:
-            kwargs['to'] = "%s.%s" % (self.rel.to._meta.app_label, self.rel.to._meta.object_name)
-        if getattr(self.rel, 'through', None) is not None:
-            if isinstance(self.rel.through, six.string_types):
-                kwargs['through'] = self.rel.through
-            elif not self.rel.through._meta.auto_created:
-                kwargs['through'] = "%s.%s" % (self.rel.through._meta.app_label, self.rel.through._meta.object_name)
+            kwargs['to'] = "%s.%s" % (
+                self.remote_field.model._meta.app_label,
+                self.remote_field.model._meta.object_name,
+            )
+        if getattr(self.remote_field, 'through', None) is not None:
+            if isinstance(self.remote_field.through, six.string_types):
+                kwargs['through'] = self.remote_field.through
+            elif not self.remote_field.through._meta.auto_created:
+                kwargs['through'] = "%s.%s" % (
+                    self.remote_field.through._meta.app_label,
+                    self.remote_field.through._meta.object_name,
+                )
         # If swappable is True, then see if we're actually pointing to the target
         # of a swap.
         swappable_setting = self.swappable_setting
@@ -2527,7 +2601,7 @@ class ManyToManyField(RelatedField):
         Called by both direct and indirect m2m traversal.
         """
         pathinfos = []
-        int_model = self.rel.through
+        int_model = self.remote_field.through
         linkfield1 = int_model._meta.get_field(self.m2m_field_name())
         linkfield2 = int_model._meta.get_field(self.m2m_reverse_field_name())
         if direct:
@@ -2554,8 +2628,8 @@ class ManyToManyField(RelatedField):
         Function that can be curried to provide the m2m table name for this
         relation.
         """
-        if self.rel.through is not None:
-            return self.rel.through._meta.db_table
+        if self.remote_field.through is not None:
+            return self.remote_field.through._meta.db_table
         elif self.db_table:
             return self.db_table
         else:
@@ -2570,12 +2644,12 @@ class ManyToManyField(RelatedField):
         cache_attr = '_m2m_%s_cache' % attr
         if hasattr(self, cache_attr):
             return getattr(self, cache_attr)
-        if self.rel.through_fields is not None:
-            link_field_name = self.rel.through_fields[0]
+        if self.remote_field.through_fields is not None:
+            link_field_name = self.remote_field.through_fields[0]
         else:
             link_field_name = None
-        for f in self.rel.through._meta.fields:
-            if (f.is_relation and f.rel.to == related.related_model and
+        for f in self.remote_field.through._meta.fields:
+            if (f.is_relation and f.remote_field.model == related.related_model and
                     (link_field_name is None or link_field_name == f.name)):
                 setattr(self, cache_attr, getattr(f, attr))
                 return getattr(self, cache_attr)
@@ -2589,12 +2663,12 @@ class ManyToManyField(RelatedField):
         if hasattr(self, cache_attr):
             return getattr(self, cache_attr)
         found = False
-        if self.rel.through_fields is not None:
-            link_field_name = self.rel.through_fields[1]
+        if self.remote_field.through_fields is not None:
+            link_field_name = self.remote_field.through_fields[1]
         else:
             link_field_name = None
-        for f in self.rel.through._meta.fields:
-            if f.is_relation and f.rel.to == related.model:
+        for f in self.remote_field.through._meta.fields:
+            if f.is_relation and f.remote_field.model == related.model:
                 if link_field_name is None and related.related_model == related.model:
                     # If this is an m2m-intermediate to self,
                     # the first foreign key you find will be
@@ -2631,8 +2705,15 @@ class ManyToManyField(RelatedField):
         # specify *what* on my non-reversible relation?!"), so we set it up
         # automatically. The funky name reduces the chance of an accidental
         # clash.
-        if self.rel.symmetrical and (self.rel.to == "self" or self.rel.to == cls._meta.object_name):
-            self.rel.related_name = "%s_rel_+" % name
+        if self.remote_field.symmetrical and (
+                self.remote_field.model == "self" or self.remote_field.model == cls._meta.object_name):
+            self.remote_field.related_name = "%s_rel_+" % name
+        elif self.remote_field.is_hidden():
+            # If the backwards relation is disabled, replace the original
+            # related_name with one generated from the m2m field name. Django
+            # still uses backwards relations internally and we need to avoid
+            # clashes between multiple m2m fields with related_name == '+'.
+            self.remote_field.related_name = "_%s_%s_+" % (cls.__name__.lower(), name)
 
         super(ManyToManyField, self).contribute_to_class(cls, name, **kwargs)
 
@@ -2640,27 +2721,25 @@ class ManyToManyField(RelatedField):
         #  1) There is a manually specified intermediate, or
         #  2) The class owning the m2m field is abstract.
         #  3) The class owning the m2m field has been swapped out.
-        if not self.rel.through and not cls._meta.abstract and not cls._meta.swapped:
-            self.rel.through = create_many_to_many_intermediary_model(self, cls)
+        if not cls._meta.abstract:
+            if self.remote_field.through:
+                def resolve_through_model(_, model, field):
+                    field.remote_field.through = model
+                lazy_related_operation(resolve_through_model, cls, self.remote_field.through, field=self)
+            elif not cls._meta.swapped:
+                self.remote_field.through = create_many_to_many_intermediary_model(self, cls)
 
         # Add the descriptor for the m2m relation.
-        setattr(cls, self.name, ManyRelatedObjectsDescriptor(self.rel, reverse=False))
+        setattr(cls, self.name, ManyRelatedObjectsDescriptor(self.remote_field, reverse=False))
 
         # Set up the accessor for the m2m table name for the relation.
         self.m2m_db_table = curry(self._get_m2m_db_table, cls._meta)
 
-        # Populate some necessary rel arguments so that cross-app relations
-        # work correctly.
-        if not cls._meta.abstract and isinstance(self.rel.through, six.string_types):
-            def resolve_through_model(field, model, cls):
-                field.rel.through = model
-            add_lazy_relation(cls, self, self.rel.through, resolve_through_model)
-
     def contribute_to_related_class(self, cls, related):
         # Internal M2Ms (i.e., those with a related name ending with '+')
         # and swapped models don't get a related descriptor.
-        if not self.rel.is_hidden() and not related.related_model._meta.swapped:
-            setattr(cls, related.get_accessor_name(), ManyRelatedObjectsDescriptor(self.rel, reverse=True))
+        if not self.remote_field.is_hidden() and not related.related_model._meta.swapped:
+            setattr(cls, related.get_accessor_name(), ManyRelatedObjectsDescriptor(self.remote_field, reverse=True))
 
         # Set up the accessors for the column names on the m2m table.
         self.m2m_column_name = curry(self._get_m2m_attr, related, 'column')
@@ -2669,9 +2748,9 @@ class ManyToManyField(RelatedField):
         self.m2m_field_name = curry(self._get_m2m_attr, related, 'name')
         self.m2m_reverse_field_name = curry(self._get_m2m_reverse_attr, related, 'name')
 
-        get_m2m_rel = curry(self._get_m2m_attr, related, 'rel')
+        get_m2m_rel = curry(self._get_m2m_attr, related, 'remote_field')
         self.m2m_target_field_name = lambda: get_m2m_rel().field_name
-        get_m2m_reverse_rel = curry(self._get_m2m_reverse_attr, related, 'rel')
+        get_m2m_reverse_rel = curry(self._get_m2m_reverse_attr, related, 'remote_field')
         self.m2m_reverse_target_field_name = lambda: get_m2m_reverse_rel().field_name
 
     def set_attributes_from_rel(self):
@@ -2690,7 +2769,7 @@ class ManyToManyField(RelatedField):
         db = kwargs.pop('using', None)
         defaults = {
             'form_class': forms.ModelMultipleChoiceField,
-            'queryset': self.rel.to._default_manager.using(db),
+            'queryset': self.remote_field.model._default_manager.using(db),
         }
         defaults.update(kwargs)
         # If initial is passed in, it's a list of related objects, but the

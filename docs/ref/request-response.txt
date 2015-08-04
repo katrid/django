@@ -49,7 +49,7 @@ All attributes should be considered read-only, unless stated otherwise below.
 .. attribute:: HttpRequest.path
 
     A string representing the full path to the requested page, not including
-    the domain.
+    the scheme or domain.
 
     Example: ``"/music/bands/the_beatles/"``
 
@@ -130,8 +130,9 @@ All attributes should be considered read-only, unless stated otherwise below.
     Available headers depend on the client and server, but here are some
     examples:
 
-    * ``CONTENT_LENGTH`` -- the length of the request body (as a string).
-    * ``CONTENT_TYPE`` -- the MIME type of the request body.
+    * ``CONTENT_LENGTH`` -- The length of the request body (as a string).
+    * ``CONTENT_TYPE`` -- The MIME type of the request body.
+    * ``HTTP_ACCEPT`` -- Acceptable content types for the response.
     * ``HTTP_ACCEPT_ENCODING`` -- Acceptable encodings for the response.
     * ``HTTP_ACCEPT_LANGUAGE`` -- Acceptable languages for the response.
     * ``HTTP_HOST`` -- The HTTP Host header sent by the client.
@@ -151,6 +152,12 @@ All attributes should be considered read-only, unless stated otherwise below.
     underscores and adding an ``HTTP_`` prefix to the name. So, for example, a
     header called ``X-Bender`` would be mapped to the ``META`` key
     ``HTTP_X_BENDER``.
+
+    Note that :djadmin:`runserver` strips all headers with underscores in the
+    name, so you won't see them in ``META``. This prevents header-spoofing
+    based on ambiguity between underscores and dashes both being normalizing to
+    underscores in WSGI environment variables. It matches the behavior of
+    Web servers like Nginx and Apache 2.4+.
 
 .. attribute:: HttpRequest.user
 
@@ -183,6 +190,14 @@ All attributes should be considered read-only, unless stated otherwise below.
     URLconf for the current request, overriding the :setting:`ROOT_URLCONF`
     setting. See :ref:`how-django-processes-a-request` for details.
 
+    ``urlconf`` can be set to ``None`` to revert any changes made by previous
+    middleware and return to using the :setting:`ROOT_URLCONF`.
+
+    .. versionchanged:: 1.9
+
+        Setting ``urlconf=None`` raised
+        :exc:`~django.core.exceptions.ImproperlyConfigured` in older versions.
+
 .. attribute:: HttpRequest.resolver_match
 
     An instance of :class:`~django.core.urlresolvers.ResolverMatch` representing
@@ -191,6 +206,13 @@ All attributes should be considered read-only, unless stated otherwise below.
     are executed before url resolving takes place (like ``process_request``, you
     can use ``process_view`` instead).
 
+.. attribute:: HttpRequest.current_app
+
+    .. versionadded:: 1.8
+
+    Not defined by Django itself, but if set, the :ttag:`url` template tag
+    will use its value as the ``current_app`` argument to
+    :func:`~django.core.urlresolvers.reverse()`.
 
 Methods
 -------
@@ -231,6 +253,14 @@ Methods
         relies on the value of :meth:`~HttpRequest.get_host()` -- for instance,
         :class:`~django.middleware.common.CommonMiddleware` or
         :class:`~django.middleware.csrf.CsrfViewMiddleware`.
+
+.. method:: HttpRequest.get_port()
+
+    .. versionadded:: 1.9
+
+    Returns the originating port of the request using information from the
+    ``HTTP_X_FORWARDED_PORT`` (if :setting:`USE_X_FORWARDED_PORT` is enabled)
+    and ``SERVER_PORT`` ``META`` variables, in that order.
 
 .. method:: HttpRequest.get_full_path()
 
@@ -321,7 +351,7 @@ Methods
     Methods implementing a file-like interface for reading from an
     HttpRequest instance. This makes it possible to consume an incoming
     request in a streaming fashion. A common use-case would be to process a
-    big XML payload with iterative parser without constructing a whole
+    big XML payload with an iterative parser without constructing a whole
     XML tree in memory.
 
     Given this standard interface, an HttpRequest instance can be
@@ -463,7 +493,7 @@ In addition, ``QueryDict`` has the following methods:
     Returns the data with the requested key, as a Python list. Returns an
     empty list if the key doesn't exist and no default value was provided.
     It's guaranteed to return a list of some sort unless the default value
-    was no list.
+    provided is not a list.
 
 .. method:: QueryDict.setlist(key, list_)
 
@@ -517,7 +547,7 @@ In addition, ``QueryDict`` has the following methods:
         >>> q.dict()
         {'a': '5'}
 
-.. method:: QueryDict.urlencode([safe])
+.. method:: QueryDict.urlencode(safe=None)
 
     Returns a string of the data in query-string format. Example::
 
@@ -745,7 +775,7 @@ Methods
       header. It is not part of the :rfc:`2109` standard for cookies,
       and it isn't honored consistently by all browsers. However,
       when it is honored, it can be a useful way to mitigate the
-      risk of client side script accessing the protected cookie
+      risk of a client-side script from accessing the protected cookie
       data.
 
     .. _HTTPOnly: https://www.owasp.org/index.php/HTTPOnly
@@ -1025,7 +1055,7 @@ Attributes
 FileResponse objects
 ====================
 
-.. versionadded:: 1.8
+.. versionadded:: 1.7.4
 
 .. class:: FileResponse
 

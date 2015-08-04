@@ -5,9 +5,11 @@ import warnings
 from django import forms
 from django.core.exceptions import ImproperlyConfigured
 from django.core.urlresolvers import reverse
-from django.test import TestCase, ignore_warnings, override_settings
+from django.test import (
+    SimpleTestCase, TestCase, ignore_warnings, override_settings,
+)
 from django.test.client import RequestFactory
-from django.utils.deprecation import RemovedInDjango20Warning
+from django.utils.deprecation import RemovedInDjango110Warning
 from django.views.generic.base import View
 from django.views.generic.edit import CreateView, FormMixin, ModelFormMixin
 
@@ -16,7 +18,7 @@ from .models import Artist, Author
 from .test_forms import AuthorForm
 
 
-class FormMixinTests(TestCase):
+class FormMixinTests(SimpleTestCase):
     def test_initial_data(self):
         """ Test instance independence of initial data dict (see #16138) """
         initial_1 = FormMixin().get_initial()
@@ -35,7 +37,7 @@ class FormMixinTests(TestCase):
             request = get_request
 
         default_kwargs = TestFormMixin().get_form_kwargs()
-        self.assertEqual(None, default_kwargs.get('prefix'))
+        self.assertIsNone(default_kwargs.get('prefix'))
 
         set_mixin = TestFormMixin()
         set_mixin.prefix = test_string
@@ -70,7 +72,7 @@ class FormMixinTests(TestCase):
                 def get_form(self, form_class):
                     return form_class(**self.get_form_kwargs())
         self.assertEqual(len(w), 1)
-        self.assertEqual(w[0].category, RemovedInDjango20Warning)
+        self.assertEqual(w[0].category, RemovedInDjango110Warning)
         self.assertEqual(
             str(w[0].message),
             '`generic_views.test_edit.MissingDefaultValue.get_form` method '
@@ -81,6 +83,13 @@ class FormMixinTests(TestCase):
             MissingDefaultValue().get_form(), forms.Form,
         )
 
+    def test_get_context_data(self):
+        class FormContext(FormMixin):
+            request = RequestFactory().get('/')
+            form_class = forms.Form
+
+        self.assertIsInstance(FormContext().get_context_data()['form'], forms.Form)
+
 
 @override_settings(ROOT_URLCONF='generic_views.urls')
 class BasicFormTests(TestCase):
@@ -90,7 +99,7 @@ class BasicFormTests(TestCase):
         self.assertRedirects(res, '/list/authors/')
 
 
-class ModelFormMixinTests(TestCase):
+class ModelFormMixinTests(SimpleTestCase):
     def test_get_form(self):
         form_class = views.AuthorGetQuerySetFormView().get_form_class()
         self.assertEqual(form_class._meta.model, Author)
@@ -143,7 +152,7 @@ class CreateViewTests(TestCase):
         self.assertRedirects(res, '/edit/authors/create/')
         self.assertQuerysetEqual(Author.objects.all(), ['<Author: Randall Munroe>'])
 
-    @ignore_warnings(category=RemovedInDjango20Warning)
+    @ignore_warnings(category=RemovedInDjango110Warning)
     def test_create_with_interpolated_redirect(self):
         res = self.client.post(
             '/edit/authors/create/interpolate_redirect/',
@@ -283,7 +292,7 @@ class UpdateViewTests(TestCase):
         self.assertRedirects(res, '/edit/authors/create/')
         self.assertQuerysetEqual(Author.objects.all(), ['<Author: Randall Munroe (author of xkcd)>'])
 
-    @ignore_warnings(category=RemovedInDjango20Warning)
+    @ignore_warnings(category=RemovedInDjango110Warning)
     def test_update_with_interpolated_redirect(self):
         a = Author.objects.create(
             name='Randall Munroe',
@@ -390,7 +399,7 @@ class DeleteViewTests(TestCase):
         self.assertRedirects(res, '/edit/authors/create/')
         self.assertQuerysetEqual(Author.objects.all(), [])
 
-    @ignore_warnings(category=RemovedInDjango20Warning)
+    @ignore_warnings(category=RemovedInDjango110Warning)
     def test_delete_with_interpolated_redirect(self):
         a = Author.objects.create(**{'name': 'Randall Munroe', 'slug': 'randall-munroe'})
         res = self.client.post('/edit/author/%d/delete/interpolate_redirect/' % a.pk)

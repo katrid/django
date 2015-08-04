@@ -43,9 +43,12 @@ accept_language_re = re.compile(r'''
         (?:\s*,\s*|$)                                 # Multiple accepts per header.
         ''', re.VERBOSE)
 
-language_code_re = re.compile(r'^[a-z]{1,8}(?:-[a-z0-9]{1,8})*$', re.IGNORECASE)
+language_code_re = re.compile(
+    r'^[a-z]{1,8}(?:-[a-z0-9]{1,8})*(?:@[a-z0-9]{1,20})?$',
+    re.IGNORECASE
+)
 
-language_code_prefix_re = re.compile(r'^/([\w-]+)(/|$)')
+language_code_prefix_re = re.compile(r'^/([\w@-]+)(/|$)')
 
 
 @receiver(setting_changed)
@@ -248,8 +251,12 @@ def get_language_bidi():
     * False = left-to-right layout
     * True = right-to-left layout
     """
-    base_lang = get_language().split('-')[0]
-    return base_lang in settings.LANGUAGES_BIDI
+    lang = get_language()
+    if lang is None:
+        return False
+    else:
+        base_lang = get_language().split('-')[0]
+        return base_lang in settings.LANGUAGES_BIDI
 
 
 def catalog():
@@ -394,7 +401,7 @@ def check_for_language(lang_code):
     <https://www.djangoproject.com/weblog/2007/oct/26/security-fix/>.
     """
     # First, a quick check to make sure lang_code is well-formed (#21458)
-    if not language_code_re.search(lang_code):
+    if lang_code is None or not language_code_re.search(lang_code):
         return False
     for path in all_locale_paths():
         if gettext_module.find('django', path, [to_locale(lang_code)]) is not None:

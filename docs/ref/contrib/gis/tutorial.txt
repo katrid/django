@@ -10,10 +10,10 @@ world-class geographic Web framework.  GeoDjango strives to make it as simple
 as possible to create geographic Web applications, like location-based services.
 Its features include:
 
-* Django model fields for `OGC`_ geometries.
+* Django model fields for `OGC`_ geometries and raster data.
 * Extensions to Django's ORM for querying and manipulating spatial data.
-* Loosely-coupled, high-level Python interfaces for GIS geometry operations and
-  data formats.
+* Loosely-coupled, high-level Python interfaces for GIS geometry and raster
+  operations and data manipulation in different formats.
 * Editing geometry fields from the admin.
 
 This tutorial assumes familiarity with Django; thus, if you're brand new to
@@ -286,6 +286,9 @@ This command should produce the following output:
 .. code-block:: sql
 
     BEGIN;
+    --
+    -- Create model WorldBorder
+    --
     CREATE TABLE "world_worldborder" (
         "id" serial NOT NULL PRIMARY KEY,
         "name" varchar(50) NOT NULL,
@@ -304,12 +307,6 @@ This command should produce the following output:
     ;
     CREATE INDEX "world_worldborder_mpoly_id" ON "world_worldborder" USING GIST ( "mpoly" );
     COMMIT;
-
-.. note::
-
-    With PostGIS < 2.0, the output is slightly different. The ``mpoly`` geometry
-    column is added through a separate ``SELECT AddGeometryColumn(...)``
-    statement.
 
 If this looks correct, run :djadmin:`migrate` to create this table in the
 database:
@@ -628,8 +625,8 @@ a ``contains`` lookup using the ``pnt_wkt`` as the parameter::
     >>> qs
     [<WorldBorder: United States>]
 
-Here, you retrieved a ``GeoQuerySet`` with only one model: the border of
-the United States (exactly what you would expect).
+Here, you retrieved a ``QuerySet`` with only one model: the border of the
+United States (exactly what you would expect).
 
 Similarly, you may also use a :doc:`GEOS geometry object <geos>`.
 Here, you can combine the ``intersects`` spatial lookup with the ``get``
@@ -715,8 +712,12 @@ the GEOS library::
     >>> pnt.contains(sm.mpoly)
     False
 
-``GeoQuerySet`` Methods
------------------------
+Geographic annotations
+----------------------
+
+GeoDjango also offers a set of geographic annotations to compute distances and
+several other operations (intersection, difference, etc.). See the
+:doc:`functions` documentation.
 
 
 Putting your data on the map
@@ -748,7 +749,7 @@ Next, edit your ``urls.py`` in the ``geodjango`` application folder as follows::
     from django.contrib.gis import admin
 
     urlpatterns = [
-        url(r'^admin/', include(admin.site.urls)),
+        url(r'^admin/', admin.site.urls),
     ]
 
 Create an admin user:

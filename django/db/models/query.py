@@ -19,7 +19,7 @@ from django.db.models.deletion import Collector
 from django.db.models.expressions import F, Date, DateTime
 from django.db.models.fields import AutoField
 from django.db.models.query_utils import (
-    Q, InvalidQuery, deferred_class_factory,
+    Q, InvalidQuery, check_rel_lookup_compatibility, deferred_class_factory,
 )
 from django.db.models.sql.constants import CURSOR
 from django.utils import six, timezone
@@ -376,7 +376,7 @@ class QuerySet(object):
         keyword arguments.
         """
         clone = self.filter(*args, **kwargs)
-        if self.query.can_filter():
+        if self.query.can_filter() and not self.query.distinct_fields:
             clone = clone.order_by()
         num = len(clone)
         if num == 1:
@@ -411,7 +411,7 @@ class QuerySet(object):
         Inserts each of the instances into the database. This does *not* call
         save() on each of the instances, does not send any pre/post save
         signals, and does not set the primary key attribute if it is an
-        autoincrement field.
+        autoincrement field. Multi-table models are not supported.
         """
         # So this case is fun. When you bulk insert you don't get the primary
         # keys back (if it's an autoincrement), so you can't insert into the
@@ -423,13 +423,18 @@ class QuerySet(object):
         # this by using RETURNING clause for the insert query. We're punting
         # on these for now because they are relatively rare cases.
         assert batch_size is None or batch_size > 0
-        if self.model._meta.parents:
-            raise ValueError("Can't bulk create an inherited model")
+        # Check that the parents share the same concrete model with the our
+        # model to detect the inheritance pattern ConcreteGrandParent ->
+        # MultiTableParent -> ProxyChild. Simply checking self.model._meta.proxy
+        # would not identify that case as involving multiple tables.
+        for parent in self.model._meta.get_parent_list():
+            if parent._meta.concrete_model is not self.model._meta.concrete_model:
+                raise ValueError("Can't bulk create a multi-table inherited model")
         if not objs:
             return objs
         self._for_write = True
         connection = connections[self.db]
-        fields = self.model._meta.local_concrete_fields
+        fields = self.model._meta.concrete_fields
         objs = list(objs)
         self._populate_pk_values(objs)
         with transaction.atomic(using=self.db, savepoint=False):
@@ -590,10 +595,12 @@ class QuerySet(object):
 
         collector = Collector(using=del_query.db)
         collector.collect(del_query)
-        collector.delete()
+        deleted, _rows_count = collector.delete()
 
         # Clear the result cache, in case this QuerySet gets reused.
         self._result_cache = None
+        return deleted, _rows_count
+
     delete.alters_data = True
     delete.queryset_only = True
 
@@ -602,7 +609,7 @@ class QuerySet(object):
         Deletes objects found from the given queryset in single direct SQL
         query. No signals are sent, and there is no protection for cascades.
         """
-        sql.DeleteQuery(self.model).delete_qs(self, using)
+        return sql.DeleteQuery(self.model).delete_qs(self, using)
     _raw_delete.alters_data = True
 
     def update(self, **kwargs):
@@ -1139,16 +1146,19 @@ class QuerySet(object):
         """
         return self.query.has_filters()
 
-    def is_compatible_query_object_type(self, opts):
-        model = self.model
-        return (
-            # We trust that users of values() know what they are doing.
-            self._fields is not None or
-            # Otherwise check that models are compatible.
-            model == opts.concrete_model or
-            opts.concrete_model in model._meta.get_parent_list() or
-            model in opts.get_parent_list()
-        )
+    def is_compatible_query_object_type(self, opts, field):
+        """
+        Check that using this queryset as the rhs value for a lookup is
+        allowed. The opts are the options of the relation's target we are
+        querying against. For example in .filter(author__in=Author.objects.all())
+        the opts would be Author's (from the author field) and self.model would
+        be Author.objects.all() queryset's .model (Author also). The field is
+        the related field on the lhs side.
+        """
+        # We trust that users of values() know what they are doing.
+        if self._fields is not None:
+            return True
+        return check_rel_lookup_compatibility(self.model, opts, field)
     is_compatible_query_object_type.queryset_only = True
 
 
@@ -1186,11 +1196,11 @@ class RawQuerySet(object):
         """
         Resolve the init field names and value positions
         """
-        model_init_names = [f.attname for f in self.model._meta.fields
-                            if f.attname in self.columns]
+        model_init_fields = [f for f in self.model._meta.fields if f.column in self.columns]
         annotation_fields = [(column, pos) for pos, column in enumerate(self.columns)
                              if column not in self.model_fields]
-        model_init_order = [self.columns.index(fname) for fname in model_init_names]
+        model_init_order = [self.columns.index(f.column) for f in model_init_fields]
+        model_init_names = [f.attname for f in model_init_fields]
         return model_init_names, model_init_order, annotation_fields
 
     def __iter__(self):
@@ -1216,7 +1226,7 @@ class RawQuerySet(object):
                 model_cls = deferred_class_factory(self.model, skip)
             else:
                 model_cls = self.model
-            fields = [self.model_fields.get(c, None) for c in self.columns]
+            fields = [self.model_fields.get(c) for c in self.columns]
             converters = compiler.get_converters([
                 f.get_col(f.model._meta.db_table) if f else None for f in fields
             ])
@@ -1536,7 +1546,12 @@ def prefetch_one_level(instances, prefetcher, lookup, level):
     # contains some prefetch_related lookups. We don't want to trigger the
     # prefetch_related functionality by evaluating the query. Rather, we need
     # to merge in the prefetch_related lookups.
-    additional_lookups = getattr(rel_qs, '_prefetch_related_lookups', [])
+    # Copy the lookups in case it is a Prefetch object which could be reused
+    # later (happens in nested prefetch_related).
+    additional_lookups = [
+        copy.copy(additional_lookup) for additional_lookup
+        in getattr(rel_qs, '_prefetch_related_lookups', [])
+    ]
     if additional_lookups:
         # Don't need to clone because the manager should have given us a fresh
         # instance, so we access an internal instead of using public interface
@@ -1645,12 +1660,12 @@ class RelatedPopulator(object):
         reverse = klass_info['reverse']
         self.reverse_cache_name = None
         if reverse:
-            self.cache_name = field.rel.get_cache_name()
+            self.cache_name = field.remote_field.get_cache_name()
             self.reverse_cache_name = field.get_cache_name()
         else:
             self.cache_name = field.get_cache_name()
             if field.unique:
-                self.reverse_cache_name = field.rel.get_cache_name()
+                self.reverse_cache_name = field.remote_field.get_cache_name()
 
     def get_deferred_cls(self, klass_info, init_list):
         model_cls = klass_info['model']

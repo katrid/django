@@ -6,7 +6,7 @@ import re
 import warnings
 
 from django.utils import six
-from django.utils.deprecation import RemovedInDjango20Warning
+from django.utils.deprecation import RemovedInDjango110Warning
 from django.utils.encoding import force_str, force_text
 from django.utils.functional import allow_lazy
 from django.utils.http import RFC3986_GENDELIMS, RFC3986_SUBDELIMS
@@ -190,7 +190,7 @@ def remove_tags(html, tags):
     warnings.warn(
         "django.utils.html.remove_tags() and the removetags template filter "
         "are deprecated. Consider using the bleach library instead.",
-        RemovedInDjango20Warning, stacklevel=3
+        RemovedInDjango110Warning, stacklevel=3
     )
     tags = [re.escape(tag) for tag in tags.split()]
     tags_re = '(%s)' % '|'.join(tags)
@@ -212,7 +212,7 @@ def strip_entities(value):
     """Returns the given HTML with all entities (&something;) stripped."""
     warnings.warn(
         "django.utils.html.strip_entities() is deprecated.",
-        RemovedInDjango20Warning, stacklevel=2
+        RemovedInDjango110Warning, stacklevel=2
     )
     return re.sub(r'&(?:\w+|#\d+);', '', force_text(value))
 strip_entities = allow_lazy(strip_entities, six.text_type)
@@ -360,3 +360,34 @@ def avoid_wrapping(value):
     spaces where there previously were normal spaces.
     """
     return value.replace(" ", "\xa0")
+
+
+def html_safe(klass):
+    """
+    A decorator that defines the __html__ method. This helps non-Django
+    templates to detect classes whose __str__ methods return SafeText.
+    """
+    if '__html__' in klass.__dict__:
+        raise ValueError(
+            "can't apply @html_safe to %s because it defines "
+            "__html__()." % klass.__name__
+        )
+    if six.PY2:
+        if '__unicode__' not in klass.__dict__:
+            raise ValueError(
+                "can't apply @html_safe to %s because it doesn't "
+                "define __unicode__()." % klass.__name__
+            )
+        klass_unicode = klass.__unicode__
+        klass.__unicode__ = lambda self: mark_safe(klass_unicode(self))
+        klass.__html__ = lambda self: unicode(self)  # NOQA: unicode undefined on PY3
+    else:
+        if '__str__' not in klass.__dict__:
+            raise ValueError(
+                "can't apply @html_safe to %s because it doesn't "
+                "define __str__()." % klass.__name__
+            )
+        klass_str = klass.__str__
+        klass.__str__ = lambda self: mark_safe(klass_str(self))
+        klass.__html__ = lambda self: str(self)
+    return klass

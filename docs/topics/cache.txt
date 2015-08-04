@@ -206,6 +206,9 @@ If you are using multiple databases, :djadmin:`createcachetable` observes the
 Like :djadmin:`migrate`, :djadmin:`createcachetable` won't touch an existing
 table. It will only create missing tables.
 
+To print the SQL that would be run, rather than run it, use the
+:djadminopt:`--dry-run` option.
+
 Multiple databases
 ~~~~~~~~~~~~~~~~~~
 
@@ -298,7 +301,7 @@ example::
     CACHES = {
         'default': {
             'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-            'LOCATION': 'unique-snowflake'
+            'LOCATION': 'unique-snowflake',
         }
     }
 
@@ -554,7 +557,7 @@ setting for the middleware.  It can be used like this::
     def my_view(request):
         ...
 
-The ``key_prefix and ``cache`` arguments may be specified together. The
+The ``key_prefix`` and ``cache`` arguments may be specified together. The
 ``key_prefix`` argument and the :setting:`KEY_PREFIX <CACHES-KEY_PREFIX>`
 specified under :setting:`CACHES` will be concatenated.
 
@@ -1206,7 +1209,7 @@ the value of the :setting:`CACHE_MIDDLEWARE_SECONDS` setting. If you use a custo
 precedence, and the header values will be merged correctly.)
 
 If you want to use headers to disable caching altogether,
-``django.views.decorators.cache.never_cache`` is a view decorator that adds
+:func:`django.views.decorators.cache.never_cache` is a view decorator that adds
 headers to ensure the response won't be cached by browsers or other caches.
 Example::
 

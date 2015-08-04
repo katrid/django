@@ -16,7 +16,8 @@ from django.utils import six
 from django.utils.encoding import (
     force_text, python_2_unicode_compatible, smart_text,
 )
-from django.utils.html import conditional_escape, format_html
+from django.utils.functional import cached_property
+from django.utils.html import conditional_escape, format_html, html_safe
 from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext as _
 
@@ -67,6 +68,7 @@ class DeclarativeFieldsMetaclass(MediaDefiningClass):
         return new_class
 
 
+@html_safe
 @python_2_unicode_compatible
 class BaseForm(object):
     # This is the main implementation of all the Form logic. Note that this
@@ -74,6 +76,7 @@ class BaseForm(object):
     # information. Any improvements to the form API should be made to *this*
     # class, not to the Form class.
     field_order = None
+    prefix = None
 
     def __init__(self, data=None, files=None, auto_id='id_%s', prefix=None,
                  initial=None, error_class=ErrorList, label_suffix=None,
@@ -82,14 +85,14 @@ class BaseForm(object):
         self.data = data or {}
         self.files = files or {}
         self.auto_id = auto_id
-        self.prefix = prefix
+        if prefix is not None:
+            self.prefix = prefix
         self.initial = initial or {}
         self.error_class = error_class
         # Translators: This is the default suffix added to form field labels
         self.label_suffix = label_suffix if label_suffix is not None else _(':')
         self.empty_permitted = empty_permitted
         self._errors = None  # Stores the errors after clean() has been called.
-        self._changed_data = None
 
         # The base_fields class attribute is the *class-wide* definition of
         # fields. Because a particular *instance* of the class might want to
@@ -121,9 +124,6 @@ class BaseForm(object):
                 pass
         fields.update(self.fields)  # add remaining fields in original order
         self.fields = fields
-
-    def __html__(self):
-        return force_text(self)
 
     def __str__(self):
         return self.as_table()
@@ -227,6 +227,7 @@ class BaseForm(object):
                     'field': six.text_type(bf),
                     'help_text': help_text,
                     'html_class_attr': html_class_attr,
+                    'css_classes': css_classes,
                     'field_name': bf.html_name,
                 })
 
@@ -250,6 +251,7 @@ class BaseForm(object):
                         'field': '',
                         'help_text': '',
                         'html_class_attr': html_class_attr,
+                        'css_classes': '',
                         'field_name': '',
                     })
                     output.append(last_row)
@@ -384,7 +386,10 @@ class BaseForm(object):
             # value_from_datadict() gets the data from the data dictionaries.
             # Each widget type knows how to retrieve its own data, because some
             # widgets split data over several HTML fields.
-            value = field.widget.value_from_datadict(self.data, self.files, self.add_prefix(name))
+            if field.disabled:
+                value = self.initial.get(name, field.initial)
+            else:
+                value = field.widget.value_from_datadict(self.data, self.files, self.add_prefix(name))
             try:
                 if isinstance(field, FileField):
                     initial = self.initial.get(name, field.initial)
@@ -429,36 +434,29 @@ class BaseForm(object):
         """
         return bool(self.changed_data)
 
-    @property
+    @cached_property
     def changed_data(self):
-        if self._changed_data is None:
-            self._changed_data = []
-            # XXX: For now we're asking the individual fields whether or not the
-            # data has changed. It would probably be more efficient to hash the
-            # initial data, store it in a hidden field, and compare a hash of the
-            # submitted data, but we'd need a way to easily get the string value
-            # for a given field. Right now, that logic is embedded in the render
-            # method of each widget.
-            for name, field in self.fields.items():
-                prefixed_name = self.add_prefix(name)
-                data_value = field.widget.value_from_datadict(self.data, self.files, prefixed_name)
-                if not field.show_hidden_initial:
-                    initial_value = self.initial.get(name, field.initial)
-                    if callable(initial_value):
-                        initial_value = initial_value()
-                else:
-                    initial_prefixed_name = self.add_initial_prefix(name)
-                    hidden_widget = field.hidden_widget()
-                    try:
-                        initial_value = field.to_python(hidden_widget.value_from_datadict(
-                            self.data, self.files, initial_prefixed_name))
-                    except ValidationError:
-                        # Always assume data has changed if validation fails.
-                        self._changed_data.append(name)
-                        continue
-                if field.has_changed(initial_value, data_value):
-                    self._changed_data.append(name)
-        return self._changed_data
+        data = []
+        for name, field in self.fields.items():
+            prefixed_name = self.add_prefix(name)
+            data_value = field.widget.value_from_datadict(self.data, self.files, prefixed_name)
+            if not field.show_hidden_initial:
+                initial_value = self.initial.get(name, field.initial)
+                if callable(initial_value):
+                    initial_value = initial_value()
+            else:
+                initial_prefixed_name = self.add_initial_prefix(name)
+                hidden_widget = field.hidden_widget()
+                try:
+                    initial_value = field.to_python(hidden_widget.value_from_datadict(
+                        self.data, self.files, initial_prefixed_name))
+                except ValidationError:
+                    # Always assume data has changed if validation fails.
+                    data.append(name)
+                    continue
+            if field.has_changed(initial_value, data_value):
+                data.append(name)
+        return data
 
     @property
     def media(self):
@@ -504,6 +502,7 @@ class Form(six.with_metaclass(DeclarativeFieldsMetaclass, BaseForm)):
     # BaseForm itself has no way of designating self.fields.
 
 
+@html_safe
 @python_2_unicode_compatible
 class BoundField(object):
     "A Field plus data"
@@ -520,9 +519,6 @@ class BoundField(object):
             self.label = self.field.label
         self.help_text = field.help_text or ''
         self._initial_value = UNSET
-
-    def __html__(self):
-        return force_text(self)
 
     def __str__(self):
         """Renders this field as an HTML widget."""
@@ -573,6 +569,8 @@ class BoundField(object):
             widget.is_localized = True
 
         attrs = attrs or {}
+        if self.field.disabled:
+            attrs['disabled'] = True
         auto_id = self.auto_id
         if auto_id and 'id' not in attrs and 'id' not in widget.attrs:
             if not only_initial:
@@ -624,7 +622,7 @@ class BoundField(object):
                     # If this is an auto-generated default date, nix the
                     # microseconds for standardized handling. See #22502.
                     if (isinstance(data, (datetime.datetime, datetime.time)) and
-                            not getattr(self.field.widget, 'supports_microseconds', True)):
+                            not self.field.widget.supports_microseconds):
                         data = data.replace(microsecond=0)
                     self._initial_value = data
         else:

@@ -15,8 +15,10 @@ from django.forms import (
     RadioSelect, Select, SelectDateWidget, SelectMultiple, SplitDateTimeField,
     SplitDateTimeWidget, Textarea, TextInput, TimeInput, ValidationError,
 )
-from django.forms.widgets import RadioFieldRenderer
-from django.test import TestCase, override_settings
+from django.forms.widgets import (
+    ChoiceFieldRenderer, ChoiceInput, RadioFieldRenderer,
+)
+from django.test import SimpleTestCase, override_settings
 from django.utils import six, translation
 from django.utils.dates import MONTHS_AP
 from django.utils.encoding import force_text, python_2_unicode_compatible
@@ -25,7 +27,7 @@ from django.utils.safestring import SafeData, mark_safe
 from ..models import Article
 
 
-class FormsWidgetTests(TestCase):
+class FormsWidgetTests(SimpleTestCase):
     # Each Widget class corresponds to an HTML form widget. A Widget knows how to
     # render itself, given a field name and some data. Widgets don't perform
     # validation.
@@ -1147,6 +1149,23 @@ beatle J R Ringo False""")
         )
         self.assertEqual(f.cleaned_data['field1'], 'some text,JP,2007-04-25 06:24:00')
 
+    def test_sub_widget_html_safe(self):
+        widget = TextInput()
+        subwidget = next(widget.subwidgets('username', 'John Doe'))
+        self.assertTrue(hasattr(subwidget, '__html__'))
+        self.assertEqual(force_text(subwidget), subwidget.__html__())
+
+    def test_choice_input_html_safe(self):
+        widget = ChoiceInput('choices', 'CHOICE1', {}, ('CHOICE1', 'first choice'), 0)
+        self.assertTrue(hasattr(ChoiceInput, '__html__'))
+        self.assertEqual(force_text(widget), widget.__html__())
+
+    def test_choice_field_renderer_html_safe(self):
+        renderer = ChoiceFieldRenderer('choices', 'CHOICE1', {}, [('CHOICE1', 'first_choice')])
+        renderer.choice_input_class = lambda *args: args
+        self.assertTrue(hasattr(ChoiceFieldRenderer, '__html__'))
+        self.assertEqual(force_text(renderer), renderer.__html__())
+
 
 class NullBooleanSelectLazyForm(Form):
     """Form to test for lazy evaluation. Refs #17190"""
@@ -1154,7 +1173,7 @@ class NullBooleanSelectLazyForm(Form):
 
 
 @override_settings(USE_L10N=True)
-class FormsI18NWidgetsTests(TestCase):
+class FormsI18NWidgetsTests(SimpleTestCase):
     def setUp(self):
         super(FormsI18NWidgetsTests, self).setUp()
         translation.activate('de-at')
@@ -1242,7 +1261,7 @@ class SelectAndTextWidget(MultiWidget):
     choices = property(_get_choices, _set_choices)
 
 
-class WidgetTests(TestCase):
+class WidgetTests(SimpleTestCase):
     def test_12048(self):
         # See ticket #12048.
         w1 = SelectAndTextWidget(choices=[1, 2, 3])
@@ -1284,7 +1303,7 @@ class FakeFieldFile(object):
         return self.url
 
 
-class ClearableFileInputTests(TestCase):
+class ClearableFileInputTests(SimpleTestCase):
     def test_clear_input_renders(self):
         """
         A ClearableFileInput with is_required False and rendered with
@@ -1325,6 +1344,25 @@ class ClearableFileInputTests(TestCase):
         self.assertIn('something&lt;div onclick=&quot;alert(&#39;oops&#39;)&quot;&gt;.jpg', output)
         self.assertIn('my&lt;div&gt;file', output)
         self.assertNotIn('my<div>file', output)
+
+    def test_html_does_not_mask_exceptions(self):
+        """
+        A ClearableFileInput should not mask exceptions produced while
+        checking that it has a value.
+        """
+        @python_2_unicode_compatible
+        class FailingURLFieldFile(object):
+            @property
+            def url(self):
+                raise RuntimeError('Canary')
+
+            def __str__(self):
+                return 'value'
+
+        widget = ClearableFileInput()
+        field = FailingURLFieldFile()
+        with self.assertRaisesMessage(RuntimeError, 'Canary'):
+            widget.render('myfile', field)
 
     def test_clear_input_renders_only_if_not_required(self):
         """
@@ -1398,7 +1436,7 @@ class GetDate(Form):
     mydate = DateField(widget=SelectDateWidget)
 
 
-class SelectDateWidgetTests(TestCase):
+class SelectDateWidgetTests(SimpleTestCase):
 
     # The forms library comes with some extra, higher-level Field and Widget
     def test_selectdate(self):
@@ -1959,3 +1997,18 @@ class SelectDateWidgetTests(TestCase):
         # label tag is correctly associated with first rendered dropdown
         a = GetDate({'mydate_month': '1', 'mydate_day': '1', 'mydate_year': '2010'})
         self.assertIn('<label for="id_mydate_day">', a.as_p())
+
+
+class SelectWidgetTests(SimpleTestCase):
+
+    def test_deepcopy(self):
+        """
+        __deepcopy__() should copy all attributes properly (#25085).
+        """
+        widget = Select()
+        obj = copy.deepcopy(widget)
+        self.assertIsNot(widget, obj)
+        self.assertEqual(widget.choices, obj.choices)
+        self.assertIsNot(widget.choices, obj.choices)
+        self.assertEqual(widget.attrs, obj.attrs)
+        self.assertIsNot(widget.attrs, obj.attrs)

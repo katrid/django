@@ -9,6 +9,7 @@ from django.contrib.auth.models import User
 from django.contrib.sites.models import Site
 from django.core.urlresolvers import reverse
 from django.test import TestCase, modify_settings, override_settings
+from django.test.utils import captured_stderr
 
 from .models import Company, Person
 
@@ -73,7 +74,7 @@ class AdminDocViewTests(TestDataMixin, AdminDocsTestCase):
 
     def test_bookmarklets(self):
         response = self.client.get(reverse('django-admindocs-bookmarklets'))
-        self.assertContains(response, 'http://testserver/admin/doc/views/')
+        self.assertContains(response, '/admindocs/views/')
 
     def test_templatetag_index(self):
         response = self.client.get(reverse('django-admindocs-tags'))
@@ -135,6 +136,30 @@ class AdminDocViewTests(TestDataMixin, AdminDocsTestCase):
                                 'administration</a></h1>')
         finally:
             utils.docutils_is_available = True
+
+
+@override_settings(TEMPLATES=[{
+    'NAME': 'ONE',
+    'BACKEND': 'django.template.backends.django.DjangoTemplates',
+    'APP_DIRS': True,
+}, {
+    'NAME': 'TWO',
+    'BACKEND': 'django.template.backends.django.DjangoTemplates',
+    'APP_DIRS': True,
+}])
+@unittest.skipUnless(utils.docutils_is_available, "no docutils installed.")
+class AdminDocViewWithMultipleEngines(AdminDocViewTests):
+    def test_templatefilter_index(self):
+        # Overridden because non-trivial TEMPLATES settings aren't supported
+        # but the page shouldn't crash (#24125).
+        response = self.client.get(reverse('django-admindocs-filters'))
+        self.assertContains(response, '<title>Template filters</title>', html=True)
+
+    def test_templatetag_index(self):
+        # Overridden because non-trivial TEMPLATES settings aren't supported
+        # but the page shouldn't crash (#24125).
+        response = self.client.get(reverse('django-admindocs-tags'))
+        self.assertContains(response, '<title>Template tags</title>', html=True)
 
 
 class XViewMiddlewareTest(TestDataMixin, AdminDocsTestCase):
@@ -220,9 +245,8 @@ class TestModelDetailView(TestDataMixin, AdminDocsTestCase):
 
     def setUp(self):
         self.client.login(username='super', password='secret')
-        self.response = self.client.get(
-            reverse('django-admindocs-models-detail',
-                    args=['admin_docs', 'person']))
+        with captured_stderr() as self.docutils_stderr:
+            self.response = self.client.get(reverse('django-admindocs-models-detail', args=['admin_docs', 'person']))
 
     def test_method_excludes(self):
         """
@@ -288,6 +312,29 @@ class TestModelDetailView(TestDataMixin, AdminDocsTestCase):
         self.assertContains(
             self.response,
             "all related %s objects" % (link % ("admin_docs.group", "admin_docs.Group"))
+        )
+
+        # "raw" and "include" directives are disabled
+        self.assertContains(self.response, '<p>&quot;raw&quot; directive disabled.</p>',)
+        self.assertContains(self.response, '.. raw:: html\n    :file: admin_docs/evilfile.txt')
+        self.assertContains(self.response, '<p>&quot;include&quot; directive disabled.</p>',)
+        self.assertContains(self.response, '.. include:: admin_docs/evilfile.txt')
+        out = self.docutils_stderr.getvalue()
+        self.assertIn('"raw" directive disabled', out)
+        self.assertIn('"include" directive disabled', out)
+
+    def test_model_with_many_to_one(self):
+        link = '<a class="reference external" href="/admindocs/models/%s/">%s</a>'
+        response = self.client.get(
+            reverse('django-admindocs-models-detail', args=['admin_docs', 'company'])
+        )
+        self.assertContains(
+            response,
+            "number of related %s objects" % (link % ("admin_docs.person", "admin_docs.Person"))
+        )
+        self.assertContains(
+            response,
+            "all related %s objects" % (link % ("admin_docs.person", "admin_docs.Person"))
         )
 
     def test_model_with_no_backward_relations_render_only_relevant_fields(self):

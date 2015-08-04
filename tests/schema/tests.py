@@ -7,21 +7,26 @@ from django.db import (
     DatabaseError, IntegrityError, OperationalError, connection,
 )
 from django.db.models import Model
+from django.db.models.deletion import CASCADE
 from django.db.models.fields import (
-    BinaryField, BooleanField, CharField, DateTimeField, IntegerField,
-    PositiveIntegerField, SlugField, TextField,
+    AutoField, BigIntegerField, BinaryField, BooleanField, CharField,
+    DateField, DateTimeField, IntegerField, PositiveIntegerField, SlugField,
+    TextField, TimeField,
 )
 from django.db.models.fields.related import (
-    ForeignKey, ManyToManyField, OneToOneField,
+    ForeignKey, ForeignObject, ManyToManyField, OneToOneField,
 )
 from django.db.transaction import atomic
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, skipIfDBFeature
 
-from .fields import CustomManyToManyField, InheritedManyToManyField
+from .fields import (
+    CustomManyToManyField, InheritedManyToManyField, MediumBlobField,
+)
 from .models import (
-    Author, AuthorWithDefaultHeight, AuthorWithEvenLongerName, Book, BookWeak,
-    BookWithLongName, BookWithO2O, BookWithSlug, Note, Tag, TagIndexed,
-    TagM2MTest, TagUniqueRename, Thing, UniqueTest, new_apps,
+    Author, AuthorWithDefaultHeight, AuthorWithEvenLongerName, Book,
+    BookForeignObj, BookWeak, BookWithLongName, BookWithO2O, BookWithoutAuthor,
+    BookWithSlug, IntegerPK, Note, NoteRename, Tag, TagIndexed, TagM2MTest,
+    TagUniqueRename, Thing, UniqueTest, new_apps,
 )
 
 
@@ -38,8 +43,8 @@ class SchemaTests(TransactionTestCase):
 
     models = [
         Author, AuthorWithDefaultHeight, AuthorWithEvenLongerName, Book,
-        BookWeak, BookWithLongName, BookWithO2O, BookWithSlug, Note, Tag,
-        TagIndexed, TagM2MTest, TagUniqueRename, Thing, UniqueTest,
+        BookWeak, BookWithLongName, BookWithO2O, BookWithSlug, IntegerPK, Note,
+        Tag, TagIndexed, TagM2MTest, TagUniqueRename, Thing, UniqueTest,
     ]
 
     # Utility functions
@@ -61,6 +66,7 @@ class SchemaTests(TransactionTestCase):
 
     def delete_tables(self):
         "Deletes all model tables for our models for a clean test environment"
+        converter = connection.introspection.table_name_converter
         with connection.cursor() as cursor:
             connection.disable_constraint_checking()
             table_names = connection.introspection.table_names(cursor)
@@ -68,7 +74,7 @@ class SchemaTests(TransactionTestCase):
                 # Remove any M2M tables first
                 for field in model._meta.local_many_to_many:
                     with atomic():
-                        tbl = field.rel.through._meta.db_table
+                        tbl = converter(field.remote_field.through._meta.db_table)
                         if tbl in table_names:
                             cursor.execute(connection.schema_editor().sql_delete_table % {
                                 "table": connection.ops.quote_name(tbl),
@@ -76,7 +82,7 @@ class SchemaTests(TransactionTestCase):
                             table_names.remove(tbl)
                 # Then remove the main tables
                 with atomic():
-                    tbl = model._meta.db_table
+                    tbl = converter(model._meta.db_table)
                     if tbl in table_names:
                         cursor.execute(connection.schema_editor().sql_delete_table % {
                             "table": connection.ops.quote_name(tbl),
@@ -156,7 +162,7 @@ class SchemaTests(TransactionTestCase):
             )
         # Repoint the FK constraint
         old_field = Book._meta.get_field("author")
-        new_field = ForeignKey(Tag)
+        new_field = ForeignKey(Tag, CASCADE)
         new_field.set_attributes_from_name("author")
         with connection.schema_editor() as editor:
             editor.alter_field(Book, old_field, new_field, strict=True)
@@ -187,7 +193,7 @@ class SchemaTests(TransactionTestCase):
             if details['columns'] == ["author_id"] and details['foreign_key']:
                 self.fail("FK constraint for author_id found")
         # Make a db_constraint=False FK
-        new_field = ForeignKey(Tag, db_constraint=False)
+        new_field = ForeignKey(Tag, CASCADE, db_constraint=False)
         new_field.set_attributes_from_name("tag")
         with connection.schema_editor() as editor:
             editor.add_field(Author, new_field)
@@ -197,7 +203,7 @@ class SchemaTests(TransactionTestCase):
             if details['columns'] == ["tag_id"] and details['foreign_key']:
                 self.fail("FK constraint for tag_id found")
         # Alter to one with a constraint
-        new_field2 = ForeignKey(Tag)
+        new_field2 = ForeignKey(Tag, CASCADE)
         new_field2.set_attributes_from_name("tag")
         with connection.schema_editor() as editor:
             editor.alter_field(Author, new_field, new_field2, strict=True)
@@ -210,7 +216,7 @@ class SchemaTests(TransactionTestCase):
         else:
             self.fail("No FK constraint for tag_id found")
         # Alter to one without a constraint again
-        new_field2 = ForeignKey(Tag)
+        new_field2 = ForeignKey(Tag, CASCADE)
         new_field2.set_attributes_from_name("tag")
         with connection.schema_editor() as editor:
             editor.alter_field(Author, new_field2, new_field, strict=True)
@@ -244,7 +250,7 @@ class SchemaTests(TransactionTestCase):
         with connection.schema_editor() as editor:
             editor.add_field(LocalAuthorWithM2M, new_field)
         # Make sure no FK constraint is present
-        constraints = self.get_constraints(new_field.rel.through._meta.db_table)
+        constraints = self.get_constraints(new_field.remote_field.through._meta.db_table)
         for name, details in constraints.items():
             if details['columns'] == ["tag_id"] and details['foreign_key']:
                 self.fail("FK constraint for tag_id found")
@@ -383,6 +389,23 @@ class SchemaTests(TransactionTestCase):
         # these two types.
         self.assertIn(columns['bits'][0], ("BinaryField", "TextField"))
 
+    @unittest.skipUnless(connection.vendor == 'mysql', "MySQL specific")
+    def test_add_binaryfield_mediumblob(self):
+        """
+        Test adding a custom-sized binary field on MySQL (#24846).
+        """
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+        # Add the new field with default
+        new_field = MediumBlobField(blank=True, default=b'123')
+        new_field.set_attributes_from_name('bits')
+        with connection.schema_editor() as editor:
+            editor.add_field(Author, new_field)
+        columns = self.column_classes(Author)
+        # Introspection treats BLOBs as TextFields
+        self.assertEqual(columns['bits'][0], "TextField")
+
     def test_alter(self):
         """
         Tests simple altering of fields
@@ -425,6 +448,87 @@ class SchemaTests(TransactionTestCase):
         new_field.set_attributes_from_name("info")
         with connection.schema_editor() as editor:
             editor.alter_field(Note, old_field, new_field, strict=True)
+
+    def test_alter_text_field_to_date_field(self):
+        """
+        #25002 - Test conversion of text field to date field.
+        """
+        with connection.schema_editor() as editor:
+            editor.create_model(Note)
+        Note.objects.create(info='1988-05-05')
+        old_field = Note._meta.get_field('info')
+        new_field = DateField(blank=True)
+        new_field.set_attributes_from_name('info')
+        with connection.schema_editor() as editor:
+            editor.alter_field(Note, old_field, new_field, strict=True)
+        # Make sure the field isn't nullable
+        columns = self.column_classes(Note)
+        self.assertFalse(columns['info'][1][6])
+
+    def test_alter_text_field_to_datetime_field(self):
+        """
+        #25002 - Test conversion of text field to datetime field.
+        """
+        with connection.schema_editor() as editor:
+            editor.create_model(Note)
+        Note.objects.create(info='1988-05-05 3:16:17.4567')
+        old_field = Note._meta.get_field('info')
+        new_field = DateTimeField(blank=True)
+        new_field.set_attributes_from_name('info')
+        with connection.schema_editor() as editor:
+            editor.alter_field(Note, old_field, new_field, strict=True)
+        # Make sure the field isn't nullable
+        columns = self.column_classes(Note)
+        self.assertFalse(columns['info'][1][6])
+
+    def test_alter_text_field_to_time_field(self):
+        """
+        #25002 - Test conversion of text field to time field.
+        """
+        with connection.schema_editor() as editor:
+            editor.create_model(Note)
+        Note.objects.create(info='3:16:17.4567')
+        old_field = Note._meta.get_field('info')
+        new_field = TimeField(blank=True)
+        new_field.set_attributes_from_name('info')
+        with connection.schema_editor() as editor:
+            editor.alter_field(Note, old_field, new_field, strict=True)
+        # Make sure the field isn't nullable
+        columns = self.column_classes(Note)
+        self.assertFalse(columns['info'][1][6])
+
+    @skipIfDBFeature('interprets_empty_strings_as_nulls')
+    def test_alter_textual_field_keep_null_status(self):
+        """
+        Changing a field type shouldn't affect the not null status.
+        """
+        with connection.schema_editor() as editor:
+            editor.create_model(Note)
+        with self.assertRaises(IntegrityError):
+            Note.objects.create(info=None)
+        old_field = Note._meta.get_field("info")
+        new_field = CharField(max_length=50)
+        new_field.set_attributes_from_name("info")
+        with connection.schema_editor() as editor:
+            editor.alter_field(Note, old_field, new_field, strict=True)
+        with self.assertRaises(IntegrityError):
+            Note.objects.create(info=None)
+
+    def test_alter_numeric_field_keep_null_status(self):
+        """
+        Changing a field type shouldn't affect the not null status.
+        """
+        with connection.schema_editor() as editor:
+            editor.create_model(UniqueTest)
+        with self.assertRaises(IntegrityError):
+            UniqueTest.objects.create(year=None, slug='aaa')
+        old_field = UniqueTest._meta.get_field("year")
+        new_field = BigIntegerField()
+        new_field.set_attributes_from_name("year")
+        with connection.schema_editor() as editor:
+            editor.alter_field(UniqueTest, old_field, new_field, strict=True)
+        with self.assertRaises(IntegrityError):
+            UniqueTest.objects.create(year=None, slug='bbb')
 
     def test_alter_null_to_not_null(self):
         """
@@ -529,7 +633,7 @@ class SchemaTests(TransactionTestCase):
             self.fail("No FK constraint for author_id found")
         # Alter the FK
         old_field = Book._meta.get_field("author")
-        new_field = ForeignKey(Author, editable=False)
+        new_field = ForeignKey(Author, CASCADE, editable=False)
         new_field.set_attributes_from_name("author")
         with connection.schema_editor() as editor:
             editor.alter_field(Book, old_field, new_field, strict=True)
@@ -571,7 +675,7 @@ class SchemaTests(TransactionTestCase):
             if details['foreign_key']:
                 self.fail('Found an unexpected FK constraint to %s' % details['columns'])
         old_field = LocalBook._meta.get_field("author")
-        new_field = ForeignKey(Author)
+        new_field = ForeignKey(Author, CASCADE)
         new_field.set_attributes_from_name("author")
         with connection.schema_editor() as editor:
             editor.alter_field(LocalBook, old_field, new_field, strict=True)
@@ -612,7 +716,7 @@ class SchemaTests(TransactionTestCase):
         self.assertTrue(author_is_fk, "No FK constraint for author_id found")
         # Alter the OneToOneField to ForeignKey
         old_field = BookWithO2O._meta.get_field("author")
-        new_field = ForeignKey(Author)
+        new_field = ForeignKey(Author, CASCADE)
         new_field.set_attributes_from_name("author")
         with connection.schema_editor() as editor:
             editor.alter_field(BookWithO2O, old_field, new_field, strict=True)
@@ -658,7 +762,7 @@ class SchemaTests(TransactionTestCase):
         self.assertTrue(author_is_fk, "No FK constraint for author_id found")
         # Alter the ForeignKey to OneToOneField
         old_field = Book._meta.get_field("author")
-        new_field = OneToOneField(Author)
+        new_field = OneToOneField(Author, CASCADE)
         new_field.set_attributes_from_name("author")
         with connection.schema_editor() as editor:
             editor.alter_field(Book, old_field, new_field, strict=True)
@@ -696,6 +800,61 @@ class SchemaTests(TransactionTestCase):
         # field which drops the id sequence, at least on PostgreSQL.
         Author.objects.create(name='Foo')
 
+    def test_alter_int_pk_to_autofield_pk(self):
+        """
+        Should be able to rename an IntegerField(primary_key=True) to
+        AutoField(primary_key=True).
+        """
+        with connection.schema_editor() as editor:
+            editor.create_model(IntegerPK)
+
+        old_field = IntegerPK._meta.get_field('i')
+        new_field = AutoField(primary_key=True)
+        new_field.model = IntegerPK
+        new_field.set_attributes_from_name('i')
+
+        with connection.schema_editor() as editor:
+            editor.alter_field(IntegerPK, old_field, new_field, strict=True)
+
+    def test_alter_int_pk_to_int_unique(self):
+        """
+        Should be able to rename an IntegerField(primary_key=True) to
+        IntegerField(unique=True).
+        """
+        class IntegerUnique(Model):
+            i = IntegerField(unique=True)
+            j = IntegerField(primary_key=True)
+
+            class Meta:
+                app_label = 'schema'
+                apps = new_apps
+                db_table = 'INTEGERPK'
+
+        with connection.schema_editor() as editor:
+            editor.create_model(IntegerPK)
+
+        # model requires a new PK
+        old_field = IntegerPK._meta.get_field('j')
+        new_field = IntegerField(primary_key=True)
+        new_field.model = IntegerPK
+        new_field.set_attributes_from_name('j')
+
+        with connection.schema_editor() as editor:
+            editor.alter_field(IntegerPK, old_field, new_field, strict=True)
+
+        old_field = IntegerPK._meta.get_field('i')
+        new_field = IntegerField(unique=True)
+        new_field.model = IntegerPK
+        new_field.set_attributes_from_name('i')
+
+        with connection.schema_editor() as editor:
+            editor.alter_field(IntegerPK, old_field, new_field, strict=True)
+
+        # Ensure unique constraint works.
+        IntegerUnique.objects.create(i=1, j=1)
+        with self.assertRaises(IntegrityError):
+            IntegerUnique.objects.create(i=1, j=2)
+
     def test_rename(self):
         """
         Tests simple altering of fields
@@ -718,12 +877,32 @@ class SchemaTests(TransactionTestCase):
         self.assertEqual(columns['display_name'][0], "CharField")
         self.assertNotIn("name", columns)
 
+    @skipIfDBFeature('interprets_empty_strings_as_nulls')
+    def test_rename_keep_null_status(self):
+        """
+        Renaming a field shouldn't affect the not null status.
+        """
+        with connection.schema_editor() as editor:
+            editor.create_model(Note)
+        with self.assertRaises(IntegrityError):
+            Note.objects.create(info=None)
+        old_field = Note._meta.get_field("info")
+        new_field = TextField()
+        new_field.set_attributes_from_name("detail_info")
+        with connection.schema_editor() as editor:
+            editor.alter_field(Note, old_field, new_field, strict=True)
+        columns = self.column_classes(Note)
+        self.assertEqual(columns['detail_info'][0], "TextField")
+        self.assertNotIn("info", columns)
+        with self.assertRaises(IntegrityError):
+            NoteRename.objects.create(detail_info=None)
+
     def _test_m2m_create(self, M2MFieldClass):
         """
         Tests M2M fields on models during creation
         """
         class LocalBookWithM2M(Model):
-            author = ForeignKey(Author)
+            author = ForeignKey(Author, CASCADE)
             title = CharField(max_length=100, db_index=True)
             pub_date = DateTimeField()
             tags = M2MFieldClass("TagM2MTest", related_name="books")
@@ -732,15 +911,17 @@ class SchemaTests(TransactionTestCase):
                 app_label = 'schema'
                 apps = new_apps
 
-        self.local_models = [LocalBookWithM2M]
-
+        self.local_models = [
+            LocalBookWithM2M,
+            LocalBookWithM2M._meta.get_field('tags').remote_field.through,
+        ]
         # Create the tables
         with connection.schema_editor() as editor:
             editor.create_model(Author)
             editor.create_model(TagM2MTest)
             editor.create_model(LocalBookWithM2M)
         # Ensure there is now an m2m table there
-        columns = self.column_classes(LocalBookWithM2M._meta.get_field("tags").rel.through)
+        columns = self.column_classes(LocalBookWithM2M._meta.get_field("tags").remote_field.through)
         self.assertEqual(columns['tagm2mtest_id'][0], "IntegerField")
 
     def test_m2m_create(self):
@@ -757,8 +938,8 @@ class SchemaTests(TransactionTestCase):
         Tests M2M fields on models during creation with through models
         """
         class LocalTagThrough(Model):
-            book = ForeignKey("schema.LocalBookWithM2MThrough")
-            tag = ForeignKey("schema.TagM2MTest")
+            book = ForeignKey("schema.LocalBookWithM2MThrough", CASCADE)
+            tag = ForeignKey("schema.TagM2MTest", CASCADE)
 
             class Meta:
                 app_label = 'schema'
@@ -812,13 +993,14 @@ class SchemaTests(TransactionTestCase):
         # Create an M2M field
         new_field = M2MFieldClass("schema.TagM2MTest", related_name="authors")
         new_field.contribute_to_class(LocalAuthorWithM2M, "tags")
+        self.local_models += [new_field.remote_field.through]
         # Ensure there's no m2m table there
-        self.assertRaises(DatabaseError, self.column_classes, new_field.rel.through)
+        self.assertRaises(DatabaseError, self.column_classes, new_field.remote_field.through)
         # Add the field
         with connection.schema_editor() as editor:
             editor.add_field(LocalAuthorWithM2M, new_field)
         # Ensure there is now an m2m table there
-        columns = self.column_classes(new_field.rel.through)
+        columns = self.column_classes(new_field.remote_field.through)
         self.assertEqual(columns['tagm2mtest_id'][0], "IntegerField")
 
         # "Alter" the field. This should not rename the DB table to itself.
@@ -829,7 +1011,7 @@ class SchemaTests(TransactionTestCase):
         with connection.schema_editor() as editor:
             editor.remove_field(LocalAuthorWithM2M, new_field)
         # Ensure there's no m2m table there
-        self.assertRaises(DatabaseError, self.column_classes, new_field.rel.through)
+        self.assertRaises(DatabaseError, self.column_classes, new_field.remote_field.through)
 
     def test_m2m(self):
         self._test_m2m(ManyToManyField)
@@ -845,8 +1027,8 @@ class SchemaTests(TransactionTestCase):
         Tests altering M2Ms with explicit through models (should no-op)
         """
         class LocalAuthorTag(Model):
-            author = ForeignKey("schema.LocalAuthorWithM2MThrough")
-            tag = ForeignKey("schema.TagM2MTest")
+            author = ForeignKey("schema.LocalAuthorWithM2MThrough", CASCADE)
+            tag = ForeignKey("schema.TagM2MTest", CASCADE)
 
             class Meta:
                 app_label = 'schema'
@@ -892,7 +1074,7 @@ class SchemaTests(TransactionTestCase):
         Tests repointing M2M fields
         """
         class LocalBookWithM2M(Model):
-            author = ForeignKey(Author)
+            author = ForeignKey(Author, CASCADE)
             title = CharField(max_length=100, db_index=True)
             pub_date = DateTimeField()
             tags = M2MFieldClass("TagM2MTest", related_name="books")
@@ -901,7 +1083,10 @@ class SchemaTests(TransactionTestCase):
                 app_label = 'schema'
                 apps = new_apps
 
-        self.local_models = [LocalBookWithM2M]
+        self.local_models = [
+            LocalBookWithM2M,
+            LocalBookWithM2M._meta.get_field('tags').remote_field.through,
+        ]
 
         # Create the tables
         with connection.schema_editor() as editor:
@@ -910,7 +1095,7 @@ class SchemaTests(TransactionTestCase):
             editor.create_model(TagM2MTest)
             editor.create_model(UniqueTest)
         # Ensure the M2M exists and points to TagM2MTest
-        constraints = self.get_constraints(LocalBookWithM2M._meta.get_field("tags").rel.through._meta.db_table)
+        constraints = self.get_constraints(LocalBookWithM2M._meta.get_field("tags").remote_field.through._meta.db_table)
         if connection.features.supports_foreign_keys:
             for name, details in constraints.items():
                 if details['columns'] == ["tagm2mtest_id"] and details['foreign_key']:
@@ -922,12 +1107,13 @@ class SchemaTests(TransactionTestCase):
         old_field = LocalBookWithM2M._meta.get_field("tags")
         new_field = M2MFieldClass(UniqueTest)
         new_field.contribute_to_class(LocalBookWithM2M, "uniques")
+        self.local_models += [new_field.remote_field.through]
         with connection.schema_editor() as editor:
             editor.alter_field(LocalBookWithM2M, old_field, new_field)
         # Ensure old M2M is gone
-        self.assertRaises(DatabaseError, self.column_classes, LocalBookWithM2M._meta.get_field("tags").rel.through)
+        self.assertRaises(DatabaseError, self.column_classes, LocalBookWithM2M._meta.get_field("tags").remote_field.through)
         # Ensure the new M2M exists and points to UniqueTest
-        constraints = self.get_constraints(new_field.rel.through._meta.db_table)
+        constraints = self.get_constraints(new_field.remote_field.through._meta.db_table)
         if connection.features.supports_foreign_keys:
             for name, details in constraints.items():
                 if details['columns'] == ["uniquetest_id"] and details['foreign_key']:
@@ -1051,6 +1237,46 @@ class SchemaTests(TransactionTestCase):
         self.assertRaises(IntegrityError, UniqueTest.objects.create, year=2012, slug="foo")
         UniqueTest.objects.all().delete()
 
+    def test_unique_together_with_fk(self):
+        """
+        Tests removing and adding unique_together constraints that include
+        a foreign key.
+        """
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+            editor.create_model(Book)
+        # Ensure the fields are unique to begin with
+        self.assertEqual(Book._meta.unique_together, ())
+        # Add the unique_together constraint
+        with connection.schema_editor() as editor:
+            editor.alter_unique_together(Book, [], [['author', 'title']])
+        # Alter it back
+        with connection.schema_editor() as editor:
+            editor.alter_unique_together(Book, [['author', 'title']], [])
+
+    def test_unique_together_with_fk_with_existing_index(self):
+        """
+        Tests removing and adding unique_together constraints that include
+        a foreign key, where the foreign key is added after the model is
+        created.
+        """
+        # Create the tables
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+            editor.create_model(BookWithoutAuthor)
+            new_field = ForeignKey(Author, CASCADE)
+            new_field.set_attributes_from_name('author')
+            editor.add_field(BookWithoutAuthor, new_field)
+        # Ensure the fields aren't unique to begin with
+        self.assertEqual(Book._meta.unique_together, ())
+        # Add the unique_together constraint
+        with connection.schema_editor() as editor:
+            editor.alter_unique_together(Book, [], [['author', 'title']])
+        # Alter it back
+        with connection.schema_editor() as editor:
+            editor.alter_unique_together(Book, [['author', 'title']], [])
+
     def test_index_together(self):
         """
         Tests removing and adding index_together constraints on a model.
@@ -1093,6 +1319,24 @@ class SchemaTests(TransactionTestCase):
                 if c['columns'] == ["slug", "title"]
             ),
         )
+
+    def test_index_together_with_fk(self):
+        """
+        Tests removing and adding index_together constraints that include
+        a foreign key.
+        """
+        # Create the table
+        with connection.schema_editor() as editor:
+            editor.create_model(Author)
+            editor.create_model(Book)
+        # Ensure the fields are unique to begin with
+        self.assertEqual(Book._meta.index_together, ())
+        # Add the unique_together constraint
+        with connection.schema_editor() as editor:
+            editor.alter_index_together(Book, [], [['author', 'title']])
+        # Alter it back
+        with connection.schema_editor() as editor:
+            editor.alter_index_together(Book, [['author', 'title']], [])
 
     def test_create_index_together(self):
         """
@@ -1259,10 +1503,19 @@ class SchemaTests(TransactionTestCase):
             editor.create_model(AuthorWithEvenLongerName)
             editor.create_model(BookWithLongName)
         # Add a second FK, this would fail due to long ref name before the fix
-        new_field = ForeignKey(AuthorWithEvenLongerName, related_name="something")
+        new_field = ForeignKey(AuthorWithEvenLongerName, CASCADE, related_name="something")
         new_field.set_attributes_from_name("author_other_really_long_named_i_mean_so_long_fk")
         with connection.schema_editor() as editor:
             editor.add_field(BookWithLongName, new_field)
+
+    def test_add_foreign_object(self):
+        with connection.schema_editor() as editor:
+            editor.create_model(BookForeignObj)
+
+        new_field = ForeignObject(Author, on_delete=CASCADE, from_fields=['author_id'], to_fields=['id'])
+        new_field.set_attributes_from_name('author')
+        with connection.schema_editor() as editor:
+            editor.add_field(BookForeignObj, new_field)
 
     def test_creation_deletion_reserved_names(self):
         """
@@ -1335,7 +1588,7 @@ class SchemaTests(TransactionTestCase):
                     "to_column": editor.quote_name(model._meta.auto_field.column),
                 }
             )
-            editor.alter_field(model, get_field(Author, field_class=ForeignKey), field)
+            editor.alter_field(model, get_field(Author, CASCADE, field_class=ForeignKey), field)
 
     def test_add_field_use_effective_default(self):
         """

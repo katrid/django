@@ -112,7 +112,7 @@ any time leading up to the actual release:
 #. Double-check that the release notes index has a link to the notes
    for the new release; this will be in ``docs/releases/index.txt``.
 
-#. If this is a major release, ensure translations from Transifex have been
+#. If this is a feature release, ensure translations from Transifex have been
    integrated. This is typically done by a separate translation's manager
    rather than the releaser, but here are the steps. Provided you have an
    account on Transifex::
@@ -181,9 +181,9 @@ OK, this is the fun part, where we actually push out a release!
 
    __ https://github.com/django/django/commit/3ef4bbf495cc6c061789132e3d50a8231a89406b
 
-#. For a major version release, remove the ``UNDER DEVELOPMENT`` header at the
+#. For a feature release, remove the ``UNDER DEVELOPMENT`` header at the
    top of the release notes and add the release date on the next line. For a
-   minor release, replace ``*Under Development*`` with the release date. Make
+   patch release, replace ``*Under Development*`` with the release date. Make
    this change on all branches where the release notes for a particular version
    are located.
 
@@ -321,7 +321,8 @@ Now you're ready to actually put the release out there. To do this:
    correct (proper version numbers, no stray ``.pyc`` or other undesirable
    files).
 
-#. Upload the release packages to PyPI::
+#. Upload the release packages to PyPI (for pre-releases, only upload the wheel
+   file)::
 
        $ twine upload -s dist/*
 
@@ -335,14 +336,15 @@ Now you're ready to actually put the release out there. To do this:
 #. Make the blog post announcing the release live.
 
 #. For a new version release (e.g. 1.5, 1.6), update the default stable version
-   of the docs by flipping the ``is_default`` flag to `deployment/wsgi/uwsgi.html`True`` on the
+   of the docs by flipping the ``is_default`` flag to ``True`` on the
    appropriate ``DocumentRelease`` object in the ``docs.djangoproject.com``
    database (this will automatically flip it to ``False`` for all
    others); you can do this using the site's admin.
 
-#. Post the release announcement to the |django-announce|,
-   |django-developers|, and |django-users| mailing lists. This should
-   include links to the announcement blog post.
+#. Post the release announcement to the |django-announce|, |django-developers|,
+   and |django-users| mailing lists. This should include a link to the
+   announcement blog post. If this is a security release, also include
+   oss-security@lists.openwall.com.
 
 Post-release
 ============
@@ -375,9 +377,9 @@ need to be done by the releaser.
    ``docs/fixtures/doc_releases.json`` JSON fixture, so people without access
    to the production DB can still run an up-to-date copy of the docs site.
 
-#. Create a stub release note for the new major version. Use the stub from the
-   previous major version or use the previous major version and delete most of
-   the contents leaving only section headings.
+#. Create a stub release note for the new feature version. Use the stub from
+   the previous feature release version or copy the contents from the previous
+   feature version and delete most of the contents leaving only the headings.
 
 #. Increase the default PBKDF2 iterations in
    ``django.contrib.auth.hashers.PBKDF2PasswordHasher`` by about 20%
@@ -393,6 +395,13 @@ need to be done by the releaser.
 #. Remove ``.. versionadded::``, ``.. versionadded::``, and ``.. deprecated::``
    annotations in the documentation from two releases ago. For example, in
    Django 1.9, notes for 1.7 will be removed.
+
+#. Add the new branch to `Read the Docs
+   <https://readthedocs.org/projects/django/>`_. Since the automatically
+   generated version names ("stable-A.B.x") differ from the version numbers
+   we've used historically in Read the Docs ("A.B.x"), we currently ask Eric
+   Holscher to add the version for us. Someday the alias functionality may be
+   built-in to the Read the Docs UI.
 
 Notes on setting the VERSION tuple
 ==================================

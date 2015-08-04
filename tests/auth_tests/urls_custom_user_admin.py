@@ -1,8 +1,7 @@
-from django.conf.urls import include, url
+from django.conf.urls import url
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
-from django.contrib.auth.urls import urlpatterns
 
 site = admin.AdminSite(name='custom_user_admin')
 
@@ -16,6 +15,6 @@ class CustomUserAdmin(UserAdmin):
 
 site.register(get_user_model(), CustomUserAdmin)
 
-urlpatterns += [
-    url(r'^admin/', include(site.urls)),
+urlpatterns = [
+    url(r'^admin/', site.urls),
 ]

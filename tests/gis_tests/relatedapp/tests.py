@@ -1,20 +1,18 @@
 from __future__ import unicode_literals
 
-from django.contrib.gis.geos import HAS_GEOS
+from django.contrib.gis.db.models import F, Collect, Count, Extent, Union
+from django.contrib.gis.geometry.backend import Geometry
+from django.contrib.gis.geos import GEOSGeometry, MultiPoint, Point
 from django.db import connection
 from django.test import TestCase, ignore_warnings, skipUnlessDBFeature
 from django.test.utils import override_settings
 from django.utils import timezone
-from django.utils.deprecation import RemovedInDjango20Warning
+from django.utils.deprecation import RemovedInDjango110Warning
 
 from ..utils import no_oracle
-
-if HAS_GEOS:
-    from django.contrib.gis.db.models import Collect, Count, Extent, F, Union
-    from django.contrib.gis.geometry.backend import Geometry
-    from django.contrib.gis.geos import GEOSGeometry, Point, MultiPoint
-
-    from .models import City, Location, DirectoryEntry, Parcel, Book, Author, Article, Event
+from .models import (
+    Article, Author, Book, City, DirectoryEntry, Event, Location, Parcel,
+)
 
 
 @skipUnlessDBFeature("gis_enabled")
@@ -66,7 +64,7 @@ class RelatedGeoModelTest(TestCase):
             check_pnt(GEOSGeometry(wkt, srid), qs[0].location.point)
 
     @skipUnlessDBFeature("supports_extent_aggr")
-    @ignore_warnings(category=RemovedInDjango20Warning)
+    @ignore_warnings(category=RemovedInDjango110Warning)
     def test_related_extent_aggregate(self):
         "Testing the `extent` GeoQuerySet aggregates on related geographic models."
         # This combines the Extent and Union aggregates into one query
@@ -100,7 +98,7 @@ class RelatedGeoModelTest(TestCase):
         )
 
     @skipUnlessDBFeature("has_unionagg_method")
-    @ignore_warnings(category=RemovedInDjango20Warning)
+    @ignore_warnings(category=RemovedInDjango110Warning)
     def test_related_union_aggregate(self):
         "Testing the `unionagg` GeoQuerySet aggregates on related geographic models."
         # This combines the Extent and Union aggregates into one query
@@ -290,10 +288,10 @@ class RelatedGeoModelTest(TestCase):
         Book.objects.create(title='Without Author')
         b = Book.objects.select_related('author').get(title='Without Author')
         # Should be `None`, and not a 'dummy' model.
-        self.assertEqual(None, b.author)
+        self.assertIsNone(b.author)
 
     @skipUnlessDBFeature("supports_collect_aggr")
-    @ignore_warnings(category=RemovedInDjango20Warning)
+    @ignore_warnings(category=RemovedInDjango110Warning)
     def test_collect(self):
         """
         Testing the (deprecated) `collect` GeoQuerySet method and `Collect`

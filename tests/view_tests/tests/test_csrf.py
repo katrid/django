@@ -1,9 +1,9 @@
-from django.test import Client, TestCase, override_settings
+from django.test import Client, SimpleTestCase, override_settings
 from django.utils.translation import override
 
 
 @override_settings(ROOT_URLCONF="view_tests.urls")
-class CsrfViewTests(TestCase):
+class CsrfViewTests(SimpleTestCase):
 
     def setUp(self):
         super(CsrfViewTests, self).setUp()
@@ -63,7 +63,7 @@ class CsrfViewTests(TestCase):
                             "by third parties.",
                             status_code=403)
 
-    # In Django 2.0, this can be changed to TEMPLATES=[] because the code path
+    # In Django 1.10, this can be changed to TEMPLATES=[] because the code path
     # that reads the TEMPLATE_* settings in that case will have been removed.
     @override_settings(TEMPLATES=[{
         'BACKEND': 'django.template.backends.dummy.TemplateStrings',

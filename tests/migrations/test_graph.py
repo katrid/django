@@ -1,13 +1,14 @@
-from unittest import expectedFailure
+import warnings
 
-from django.db.migrations.graph import (
-    CircularDependencyError, MigrationGraph, NodeNotFoundError,
+from django.db.migrations.exceptions import (
+    CircularDependencyError, NodeNotFoundError,
 )
-from django.test import TestCase
+from django.db.migrations.graph import RECURSION_DEPTH_WARNING, MigrationGraph
+from django.test import SimpleTestCase
 from django.utils.encoding import force_text
 
 
-class GraphTests(TestCase):
+class GraphTests(SimpleTestCase):
     """
     Tests the digraph structure.
     """
@@ -153,7 +154,7 @@ class GraphTests(TestCase):
             graph.forwards_plan, ('C', '0001')
         )
 
-    def test_deep_graph(self):
+    def test_graph_recursive(self):
         graph = MigrationGraph()
         root = ("app_a", "1")
         graph.add_node(root, None)
@@ -164,12 +165,15 @@ class GraphTests(TestCase):
             graph.add_node(child, None)
             graph.add_dependency(str(i), child, parent)
             expected.append(child)
+        leaf = expected[-1]
 
-        actual = graph.node_map[root].descendants()
-        self.assertEqual(expected[::-1], actual)
+        forwards_plan = graph.forwards_plan(leaf)
+        self.assertEqual(expected, forwards_plan)
 
-    @expectedFailure
-    def test_recursion_depth(self):
+        backwards_plan = graph.backwards_plan(root)
+        self.assertEqual(expected[::-1], backwards_plan)
+
+    def test_graph_iterative(self):
         graph = MigrationGraph()
         root = ("app_a", "1")
         graph.add_node(root, None)
@@ -180,9 +184,23 @@ class GraphTests(TestCase):
             graph.add_node(child, None)
             graph.add_dependency(str(i), child, parent)
             expected.append(child)
+        leaf = expected[-1]
 
-        actual = graph.node_map[root].descendants()
-        self.assertEqual(expected[::-1], actual)
+        with warnings.catch_warnings(record=True) as w:
+            forwards_plan = graph.forwards_plan(leaf)
+
+        self.assertEqual(len(w), 1)
+        self.assertTrue(issubclass(w[-1].category, RuntimeWarning))
+        self.assertEqual(str(w[-1].message), RECURSION_DEPTH_WARNING)
+        self.assertEqual(expected, forwards_plan)
+
+        with warnings.catch_warnings(record=True) as w:
+            backwards_plan = graph.backwards_plan(root)
+
+        self.assertEqual(len(w), 1)
+        self.assertTrue(issubclass(w[-1].category, RuntimeWarning))
+        self.assertEqual(str(w[-1].message), RECURSION_DEPTH_WARNING)
+        self.assertEqual(expected[::-1], backwards_plan)
 
     def test_plan_invalid_node(self):
         """
@@ -265,3 +283,4 @@ class GraphTests(TestCase):
         graph.add_dependency("app_a.0003", ("app_a", "0003"), ("app_b", "0002"))
 
         self.assertEqual(force_text(graph), "Graph: 5 nodes, 3 edges")
+        self.assertEqual(repr(graph), "<MigrationGraph: nodes=5, edges=3>")

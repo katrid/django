@@ -1,4 +1,4 @@
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from itertools import chain
 from operator import attrgetter
 
@@ -14,7 +14,7 @@ class ProtectedError(IntegrityError):
 
 
 def CASCADE(collector, field, sub_objs, using):
-    collector.collect(sub_objs, source=field.rel.to,
+    collector.collect(sub_objs, source=field.remote_field.model,
                       source_attr=field.name, nullable=field.null)
     if field.null and not connections[using].features.can_defer_constraint_checks:
         collector.add_field_update(field, None, sub_objs)
@@ -23,7 +23,7 @@ def CASCADE(collector, field, sub_objs, using):
 def PROTECT(collector, field, sub_objs, using):
     raise ProtectedError("Cannot delete some instances of model '%s' because "
         "they are referenced through a protected foreign key: '%s.%s'" % (
-            field.rel.to.__name__, sub_objs[0].__class__.__name__, field.name
+            field.remote_field.model.__name__, sub_objs[0].__class__.__name__, field.name
         ),
         sub_objs
     )
@@ -136,7 +136,7 @@ class Collector(object):
         skipping parent -> child -> parent chain preventing fast delete of
         the child.
         """
-        if from_field and from_field.rel.on_delete is not CASCADE:
+        if from_field and from_field.remote_field.on_delete is not CASCADE:
             return False
         if not (hasattr(objs, 'model') and hasattr(objs, '_raw_delete')):
             return False
@@ -153,7 +153,7 @@ class Collector(object):
         # Foreign keys pointing to this model, both from m2m and other
         # models.
         for related in get_candidate_relations_to_delete(opts):
-            if related.field.rel.on_delete is not DO_NOTHING:
+            if related.field.remote_field.on_delete is not DO_NOTHING:
                 return False
         for field in model._meta.virtual_fields:
             if hasattr(field, 'bulk_related_objects'):
@@ -214,14 +214,13 @@ class Collector(object):
                     # object instance.
                     parent_objs = [getattr(obj, ptr.name) for obj in new_objs]
                     self.collect(parent_objs, source=model,
-                                 source_attr=ptr.rel.related_name,
+                                 source_attr=ptr.remote_field.related_name,
                                  collect_related=False,
                                  reverse_dependency=True)
-
         if collect_related:
             for related in get_candidate_relations_to_delete(model._meta):
                 field = related.field
-                if field.rel.on_delete == DO_NOTHING:
+                if field.remote_field.on_delete == DO_NOTHING:
                     continue
                 batches = self.get_del_batches(new_objs, field)
                 for batch in batches:
@@ -229,14 +228,14 @@ class Collector(object):
                     if self.can_fast_delete(sub_objs, from_field=field):
                         self.fast_deletes.append(sub_objs)
                     elif sub_objs:
-                        field.rel.on_delete(self, field, sub_objs, self.using)
+                        field.remote_field.on_delete(self, field, sub_objs, self.using)
             for field in model._meta.virtual_fields:
                 if hasattr(field, 'bulk_related_objects'):
                     # Its something like generic foreign key.
                     sub_objs = field.bulk_related_objects(new_objs, self.using)
                     self.collect(sub_objs,
                                  source=model,
-                                 source_attr=field.rel.related_name,
+                                 source_attr=field.remote_field.related_name,
                                  nullable=True)
 
     def related_objects(self, related, objs):
@@ -281,6 +280,8 @@ class Collector(object):
         # don't support transactions or cannot defer constraint checks until the
         # end of a transaction.
         self.sort()
+        # number of objects deleted for each model label
+        deleted_counter = Counter()
 
         with transaction.atomic(using=self.using, savepoint=False):
             # send pre_delete signals
@@ -292,7 +293,8 @@ class Collector(object):
 
             # fast deletes
             for qs in self.fast_deletes:
-                qs._raw_delete(using=self.using)
+                count = qs._raw_delete(using=self.using)
+                deleted_counter[qs.model._meta.label] += count
 
             # update fields
             for model, instances_for_fieldvalues in six.iteritems(self.field_updates):
@@ -309,7 +311,8 @@ class Collector(object):
             for model, instances in six.iteritems(self.data):
                 query = sql.DeleteQuery(model)
                 pk_list = [obj.pk for obj in instances]
-                query.delete_batch(pk_list, self.using)
+                count = query.delete_batch(pk_list, self.using)
+                deleted_counter[model._meta.label] += count
 
                 if not model._meta.auto_created:
                     for obj in instances:
@@ -325,3 +328,4 @@ class Collector(object):
         for model, instances in six.iteritems(self.data):
             for instance in instances:
                 setattr(instance, model._meta.pk.attname, None)
+        return sum(deleted_counter.values()), dict(deleted_counter)

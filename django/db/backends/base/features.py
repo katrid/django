@@ -6,9 +6,7 @@ from django.utils.functional import cached_property
 class BaseDatabaseFeatures(object):
     gis_enabled = False
     allows_group_by_pk = False
-    # True if django.db.backends.utils.typecast_timestamp is used on values
-    # returned from dates() calls.
-    needs_datetime_string_cast = True
+    allows_group_by_selected_pks = False
     empty_fetchmany_value = []
     update_can_self_select = True
 
@@ -209,6 +207,10 @@ class BaseDatabaseFeatures(object):
 
     # Does the backend support "select for update" queries with limit (and offset)?
     supports_select_for_update_with_limit = True
+
+    # Does the backend ignore null expressions in GREATEST and LEAST queries unless
+    # every expression is null?
+    greatest_least_ignores_nulls = False
 
     def __init__(self, connection):
         self.connection = connection

@@ -134,6 +134,7 @@ def add_never_cache_headers(response):
     Adds headers to a response to indicate that a page should never be cached.
     """
     patch_response_headers(response, cache_timeout=-1)
+    patch_cache_control(response, no_cache=True, no_store=True, must_revalidate=True)
 
 
 def patch_vary_headers(response, newheaders):
@@ -188,7 +189,7 @@ def _generate_cache_key(request, method, headerlist, key_prefix):
     """Returns a cache key from the headers given in the header list."""
     ctx = hashlib.md5()
     for header in headerlist:
-        value = request.META.get(header, None)
+        value = request.META.get(header)
         if value is not None:
             ctx.update(force_bytes(value))
     url = hashlib.md5(force_bytes(iri_to_uri(request.build_absolute_uri())))
@@ -220,7 +221,7 @@ def get_cache_key(request, key_prefix=None, method='GET', cache=None):
     cache_key = _generate_cache_header_key(key_prefix, request)
     if cache is None:
         cache = caches[settings.CACHE_MIDDLEWARE_ALIAS]
-    headerlist = cache.get(cache_key, None)
+    headerlist = cache.get(cache_key)
     if headerlist is not None:
         return _generate_cache_key(request, method, headerlist, key_prefix)
     else:

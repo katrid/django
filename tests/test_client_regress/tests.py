@@ -14,12 +14,14 @@ from django.core.urlresolvers import NoReverseMatch, reverse
 from django.http import HttpResponse
 from django.template import Context, TemplateSyntaxError, engines
 from django.template.response import SimpleTemplateResponse
-from django.test import Client, TestCase, ignore_warnings, override_settings
+from django.test import (
+    Client, SimpleTestCase, TestCase, ignore_warnings, override_settings,
+)
 from django.test.client import RedirectCycleError, RequestFactory, encode_file
 from django.test.utils import ContextList, str_prefix
 from django.utils._os import upath
 from django.utils.deprecation import (
-    RemovedInDjango20Warning, RemovedInDjango21Warning,
+    RemovedInDjango20Warning, RemovedInDjango110Warning,
 )
 from django.utils.translation import ugettext_lazy
 
@@ -52,7 +54,7 @@ class TestDataMixin(object):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class AssertContainsTests(TestCase):
+class AssertContainsTests(SimpleTestCase):
 
     def test_contains(self):
         "Responses can be inspected for content, including counting repeated substrings"
@@ -322,7 +324,7 @@ class AssertTemplateUsedTests(TestDataMixin, TestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class AssertRedirectsTests(TestCase):
+class AssertRedirectsTests(SimpleTestCase):
 
     def test_redirect_page(self):
         "An assertion is raised if the original page couldn't be retrieved as expected"
@@ -518,18 +520,18 @@ class AssertRedirectsTests(TestCase):
             with self.assertRaises(AssertionError):
                 self.assertRedirects(response, 'http://testserver/secure_view/', status_code=302)
 
-    @ignore_warnings(category=RemovedInDjango21Warning)
+    @ignore_warnings(category=RemovedInDjango20Warning)
     def test_full_path_in_expected_urls(self):
         """
         Test that specifying a full URL as assertRedirects expected_url still
-        work as backwards compatible behavior until Django 2.1.
+        work as backwards compatible behavior until Django 2.0.
         """
         response = self.client.get('/redirect_view/')
         self.assertRedirects(response, 'http://testserver/get_view/')
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class AssertFormErrorTests(TestCase):
+class AssertFormErrorTests(SimpleTestCase):
 
     def test_unknown_form(self):
         "An assertion is raised if the form name is unknown"
@@ -646,7 +648,7 @@ class AssertFormErrorTests(TestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class AssertFormsetErrorTests(TestCase):
+class AssertFormsetErrorTests(SimpleTestCase):
     msg_prefixes = [("", {}), ("abc: ", {"msg_prefix": "abc"})]
 
     def setUp(self):
@@ -879,7 +881,7 @@ class SessionEngineTests(TestDataMixin, TestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls',)
-class URLEscapingTests(TestCase):
+class URLEscapingTests(SimpleTestCase):
 
     def test_simple_argument_get(self):
         "Get a view that has a simple string argument"
@@ -933,7 +935,7 @@ class ExceptionTests(TestDataMixin, TestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class TemplateExceptionTests(TestCase):
+class TemplateExceptionTests(SimpleTestCase):
 
     @override_settings(TEMPLATES=[{
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -953,7 +955,7 @@ class TemplateExceptionTests(TestCase):
 # it was changed, and another one (without self.urls) to check it was reverted on
 # teardown. This pair of tests relies upon the alphabetical ordering of test execution.
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class UrlconfSubstitutionTests(TestCase):
+class UrlconfSubstitutionTests(SimpleTestCase):
 
     def test_urlconf_was_changed(self):
         "TestCase can enforce a custom URLconf on a per-test basis"
@@ -963,7 +965,7 @@ class UrlconfSubstitutionTests(TestCase):
 
 # This test needs to run *after* UrlconfSubstitutionTests; the zz prefix in the
 # name is to ensure alphabetical ordering.
-class zzUrlconfSubstitutionTests(TestCase):
+class zzUrlconfSubstitutionTests(SimpleTestCase):
 
     def test_urlconf_was_reverted(self):
         """URLconf is reverted to original value after modification in a TestCase
@@ -1022,7 +1024,7 @@ class ContextTests(TestDataMixin, TestCase):
                           'python', 'dolly'},
                          l.keys())
 
-    @ignore_warnings(category=RemovedInDjango20Warning)
+    @ignore_warnings(category=RemovedInDjango110Warning)
     def test_15368(self):
         # Need to insert a context processor that assumes certain things about
         # the request instance. This triggers a bug caused by some ways of
@@ -1184,7 +1186,7 @@ class SessionTests(TestDataMixin, TestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class RequestMethodTests(TestCase):
+class RequestMethodTests(SimpleTestCase):
 
     def test_get(self):
         "Request a view via request method GET"
@@ -1232,7 +1234,7 @@ class RequestMethodTests(TestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class RequestMethodStringDataTests(TestCase):
+class RequestMethodStringDataTests(SimpleTestCase):
 
     def test_post(self):
         "Request a view with string data via request method POST"
@@ -1268,9 +1270,19 @@ class RequestMethodStringDataTests(TestCase):
         response = self.client.head('/body/', data='', content_type='application/json')
         self.assertEqual(response.content, b'')
 
+    def test_json(self):
+        response = self.client.get('/json_response/')
+        self.assertEqual(response.json(), {'key': 'value'})
+
+    def test_json_wrong_header(self):
+        response = self.client.get('/body/')
+        msg = 'Content-Type header is "text/html; charset=utf-8", not "application/json"'
+        with self.assertRaisesMessage(ValueError, msg):
+            self.assertEqual(response.json(), {'key': 'value'})
+
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls',)
-class QueryStringTests(TestCase):
+class QueryStringTests(SimpleTestCase):
 
     def test_get_like_requests(self):
         # See: https://code.djangoproject.com/ticket/10571.
@@ -1316,7 +1328,7 @@ class QueryStringTests(TestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class UnicodePayloadTests(TestCase):
+class UnicodePayloadTests(SimpleTestCase):
 
     def test_simple_unicode_payload(self):
         "A simple ASCII-only unicode JSON document can be POSTed"
@@ -1359,7 +1371,7 @@ class DummyFile(object):
         return b'TEST_FILE_CONTENT'
 
 
-class UploadedFileEncodingTest(TestCase):
+class UploadedFileEncodingTest(SimpleTestCase):
     def test_file_encoding(self):
         encoded_file = encode_file('TEST_BOUNDARY', 'TEST_KEY', DummyFile('test_name.bin'))
         self.assertEqual(b'--TEST_BOUNDARY', encoded_file[0])
@@ -1381,7 +1393,7 @@ class UploadedFileEncodingTest(TestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls',)
-class RequestHeadersTest(TestCase):
+class RequestHeadersTest(SimpleTestCase):
     def test_client_headers(self):
         "A test client can receive custom headers"
         response = self.client.get("/check_headers/", HTTP_X_ARG_CHECK='Testing 123')
@@ -1397,7 +1409,7 @@ class RequestHeadersTest(TestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class ReadLimitedStreamTest(TestCase):
+class ReadLimitedStreamTest(SimpleTestCase):
     """
     Tests that ensure that HttpRequest.body, HttpRequest.read() and
     HttpRequest.read(BUFFER) have proper LimitedStream behavior.
@@ -1440,7 +1452,7 @@ class ReadLimitedStreamTest(TestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class RequestFactoryStateTest(TestCase):
+class RequestFactoryStateTest(SimpleTestCase):
     """Regression tests for #15929."""
     # These tests are checking that certain middleware don't change certain
     # global state. Alternatively, from the point of view of a test, they are
@@ -1467,7 +1479,7 @@ class RequestFactoryStateTest(TestCase):
 
 
 @override_settings(ROOT_URLCONF='test_client_regress.urls')
-class RequestFactoryEnvironmentTests(TestCase):
+class RequestFactoryEnvironmentTests(SimpleTestCase):
     """
     Regression tests for #8551 and #17067: ensure that environment variables
     are set correctly in RequestFactory.

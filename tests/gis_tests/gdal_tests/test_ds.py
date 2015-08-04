@@ -27,7 +27,8 @@ if HAS_GDAL:
             },
             fids=range(5)
         ),
-        TestDS('test_vrt', ext='vrt', nfeat=3, nfld=3, geom='POINT', gtype='Point25D', driver='VRT',
+        TestDS('test_vrt', ext='vrt', nfeat=3, nfld=3, geom='POINT', gtype='Point25D',
+            driver='OGR_VRT' if GDAL_VERSION >= (2, 0) else 'VRT',
             fields={
                 'POINT_X': OFTString,
                 'POINT_Y': OFTString,
@@ -109,7 +110,7 @@ class DataSourceTest(unittest.TestCase):
                     #  http://trac.osgeo.org/gdal/ticket/3783
                     pass
                 else:
-                    self.assertEqual(True, isinstance(layer.extent, Envelope))
+                    self.assertIsInstance(layer.extent, Envelope)
                     self.assertAlmostEqual(source.extent[0], layer.extent.min_x, 5)
                     self.assertAlmostEqual(source.extent[1], layer.extent.min_y, 5)
                     self.assertAlmostEqual(source.extent[2], layer.extent.max_x, 5)
@@ -118,7 +119,7 @@ class DataSourceTest(unittest.TestCase):
                 # Now checking the field names.
                 flds = layer.fields
                 for f in flds:
-                    self.assertEqual(True, f in source.fields)
+                    self.assertIn(f, source.fields)
 
                 # Negative FIDs are not allowed.
                 self.assertRaises(OGRIndexError, layer.__getitem__, -1)
@@ -195,11 +196,11 @@ class DataSourceTest(unittest.TestCase):
                     for k, v in source.fields.items():
                         # Making sure we get the proper OGR Field instance, using
                         # a string value index for the feature.
-                        self.assertEqual(True, isinstance(feat[k], v))
+                        self.assertIsInstance(feat[k], v)
 
                     # Testing Feature.__iter__
                     for fld in feat:
-                        self.assertEqual(True, fld.name in source.fields.keys())
+                        self.assertIn(fld.name, source.fields.keys())
 
     def test05_geometries(self):
         "Testing Geometries from Data Source Features."
@@ -229,7 +230,7 @@ class DataSourceTest(unittest.TestCase):
         lyr = ds[0]
 
         # When not set, it should be None.
-        self.assertEqual(None, lyr.spatial_filter)
+        self.assertIsNone(lyr.spatial_filter)
 
         # Must be set a/an OGRGeometry or 4-tuple.
         self.assertRaises(TypeError, lyr._set_spatial_filter, 'foo')

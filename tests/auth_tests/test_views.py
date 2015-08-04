@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 
 import datetime
 import itertools
+import os
 import re
 from importlib import import_module
 
@@ -22,12 +23,12 @@ from django.core import mail
 from django.core.urlresolvers import NoReverseMatch, reverse, reverse_lazy
 from django.db import connection
 from django.http import HttpRequest, QueryDict
-from django.middleware.csrf import CsrfViewMiddleware
+from django.middleware.csrf import CsrfViewMiddleware, get_token
 from django.test import (
     TestCase, ignore_warnings, modify_settings, override_settings,
 )
 from django.test.utils import patch_logger
-from django.utils.deprecation import RemovedInDjango20Warning
+from django.utils.deprecation import RemovedInDjango110Warning
 from django.utils.encoding import force_text
 from django.utils.http import urlquote
 from django.utils.six.moves.urllib.parse import ParseResult, urlparse
@@ -196,7 +197,7 @@ class PasswordResetTest(AuthViewsTestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual("staffmember@example.com", mail.outbox[0].from_email)
 
-    @ignore_warnings(category=RemovedInDjango20Warning)
+    @ignore_warnings(category=RemovedInDjango110Warning)
     @override_settings(ALLOWED_HOSTS=['adminsite.com'])
     def test_admin_reset(self):
         "If the reset view is marked as being for admin, the HTTP_HOST header is used for a domain override."
@@ -605,7 +606,8 @@ class LoginTest(AuthViewsTestCase):
         # TestClient isn't used here as we're testing middleware, essentially.
         req = HttpRequest()
         CsrfViewMiddleware().process_view(req, login_view, (), {})
-        req.META["CSRF_COOKIE_USED"] = True
+        # get_token() triggers CSRF token inclusion in the response
+        get_token(req)
         resp = login_view(req)
         resp2 = CsrfViewMiddleware().process_response(req, resp)
         csrf_cookie = resp2.cookies.get(settings.CSRF_COOKIE_NAME, None)
@@ -943,14 +945,28 @@ class ChangelistTests(AuthViewsTestCase):
         self.assertEqual(row.change_message, 'No fields changed.')
 
     def test_user_change_password(self):
+        user_change_url = reverse('auth_test_admin:auth_user_change', args=(self.admin.pk,))
+        password_change_url = reverse('auth_test_admin:auth_user_password_change', args=(self.admin.pk,))
+
+        response = self.client.get(user_change_url)
+        # Test the link inside password field help_text.
+        rel_link = re.search(
+            r'you can change the password using <a href="([^"]*)">this form</a>',
+            force_text(response.content)
+        ).groups()[0]
+        self.assertEqual(
+            os.path.normpath(user_change_url + rel_link),
+            os.path.normpath(password_change_url)
+        )
+
         response = self.client.post(
-            reverse('auth_test_admin:auth_user_password_change', args=(self.admin.pk,)),
+            password_change_url,
             {
                 'password1': 'password1',
                 'password2': 'password1',
             }
         )
-        self.assertRedirects(response, reverse('auth_test_admin:auth_user_change', args=(self.admin.pk,)))
+        self.assertRedirects(response, user_change_url)
         row = LogEntry.objects.latest('id')
         self.assertEqual(row.change_message, 'Changed password.')
         self.logout()

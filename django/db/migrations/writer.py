@@ -3,7 +3,7 @@ from __future__ import unicode_literals
 import collections
 import datetime
 import decimal
-import inspect
+import functools
 import math
 import os
 import re
@@ -13,10 +13,12 @@ from importlib import import_module
 from django.apps import apps
 from django.db import migrations, models
 from django.db.migrations.loader import MigrationLoader
+from django.db.migrations.operations.base import Operation
 from django.utils import datetime_safe, six
 from django.utils._os import upath
 from django.utils.encoding import force_text
 from django.utils.functional import Promise
+from django.utils.inspect import get_func_args
 from django.utils.module_loading import module_dir
 from django.utils.timezone import utc
 from django.utils.version import get_docs_version
@@ -39,11 +41,10 @@ class SettingsReference(str):
 
 
 class OperationWriter(object):
-    indentation = 2
-
-    def __init__(self, operation):
+    def __init__(self, operation, indentation=2):
         self.operation = operation
         self.buff = []
+        self.indentation = indentation
 
     def serialize(self):
 
@@ -56,7 +57,14 @@ class OperationWriter(object):
                     for key, value in _arg_value.items():
                         key_string, key_imports = MigrationWriter.serialize(key)
                         arg_string, arg_imports = MigrationWriter.serialize(value)
-                        self.feed('%s: %s,' % (key_string, arg_string))
+                        args = arg_string.splitlines()
+                        if len(args) > 1:
+                            self.feed('%s: %s' % (key_string, args[0]))
+                            for arg in args[1:-1]:
+                                self.feed(arg)
+                            self.feed('%s,' % args[-1])
+                        else:
+                            self.feed('%s: %s,' % (key_string, arg_string))
                         imports.update(key_imports)
                         imports.update(arg_imports)
                     self.unindent()
@@ -66,18 +74,31 @@ class OperationWriter(object):
                     self.indent()
                     for item in _arg_value:
                         arg_string, arg_imports = MigrationWriter.serialize(item)
-                        self.feed('%s,' % arg_string)
+                        args = arg_string.splitlines()
+                        if len(args) > 1:
+                            for arg in args[:-1]:
+                                self.feed(arg)
+                            self.feed('%s,' % args[-1])
+                        else:
+                            self.feed('%s,' % arg_string)
                         imports.update(arg_imports)
                     self.unindent()
                     self.feed('],')
             else:
                 arg_string, arg_imports = MigrationWriter.serialize(_arg_value)
-                self.feed('%s=%s,' % (_arg_name, arg_string))
+                args = arg_string.splitlines()
+                if len(args) > 1:
+                    self.feed('%s=%s' % (_arg_name, args[0]))
+                    for arg in args[1:-1]:
+                        self.feed(arg)
+                    self.feed('%s,' % args[-1])
+                else:
+                    self.feed('%s=%s,' % (_arg_name, arg_string))
                 imports.update(arg_imports)
 
         imports = set()
         name, args, kwargs = self.operation.deconstruct()
-        argspec = inspect.getargspec(self.operation.__init__)
+        operation_args = get_func_args(self.operation.__init__)
 
         # See if this operation is in django.db.migrations. If it is,
         # We can just use the fact we already have that imported,
@@ -90,15 +111,14 @@ class OperationWriter(object):
 
         self.indent()
 
-        # Start at one because argspec includes "self"
-        for i, arg in enumerate(args, 1):
+        for i, arg in enumerate(args):
             arg_value = arg
-            arg_name = argspec.args[i]
+            arg_name = operation_args[i]
             _write(arg_name, arg_value)
 
         i = len(args)
         # Only iterate over remaining arguments
-        for arg_name in argspec.args[i + 1:]:
+        for arg_name in operation_args[i:]:
             if arg_name in kwargs:  # Don't sort to maintain signature order
                 arg_value = kwargs[arg_name]
                 _write(arg_name, arg_value)
@@ -136,9 +156,10 @@ class MigrationWriter(object):
         """
         items = {
             "replaces_str": "",
+            "initial_str": "",
         }
 
-        imports = {"from django.db import migrations, models"}
+        imports = set()
 
         # Deconstruct operations
         operations = []
@@ -168,7 +189,15 @@ class MigrationWriter(object):
                 migration_imports.add(line.split("import")[1].strip())
                 imports.remove(line)
                 self.needs_manual_porting = True
-        imports.discard("from django.db import models")
+
+        # django.db.migrations is always used, but models import may not be.
+        # If models import exists, merge it with migrations import.
+        if "from django.db import models" in imports:
+            imports.discard("from django.db import models")
+            imports.add("from django.db import migrations, models")
+        else:
+            imports.add("from django.db import migrations")
+
         # Sort imports by the package / module to be imported (the part after
         # "from" in "from ... import ..." or after "import" in "import ...").
         sorted_imports = sorted(imports, key=lambda i: i.split()[1])
@@ -183,6 +212,9 @@ class MigrationWriter(object):
         # If there's a replaces, make a string for it
         if self.migration.replaces:
             items['replaces_str'] = "\n    replaces = %s\n" % self.serialize(self.migration.replaces)[0]
+
+        if self.migration.initial:
+            items['initial_str'] = "\n    initial = True\n"
 
         return (MIGRATION_TEMPLATE % items).encode("utf8")
 
@@ -302,7 +334,7 @@ class MigrationWriter(object):
             value = force_text(value)
 
         # Sequences
-        if isinstance(value, (list, set, tuple)):
+        if isinstance(value, (frozenset, list, set, tuple)):
             imports = set()
             strings = []
             for item in value:
@@ -312,6 +344,8 @@ class MigrationWriter(object):
             if isinstance(value, set):
                 # Don't use the literal "{%s}" as it doesn't support empty set
                 format = "set([%s])"
+            elif isinstance(value, frozenset):
+                format = "frozenset([%s])"
             elif isinstance(value, tuple):
                 # When len(value)==0, the empty tuple should be serialized as
                 # "()", not "(,)" because (,) is invalid Python syntax.
@@ -349,6 +383,9 @@ class MigrationWriter(object):
             if isinstance(value, datetime_safe.time):
                 value_repr = "datetime.%s" % value_repr
             return value_repr, {"import datetime"}
+        # Timedeltas
+        elif isinstance(value, datetime.timedelta):
+            return repr(value), {"import datetime"}
         # Settings references
         elif isinstance(value, SettingsReference):
             return "settings.%s" % value.setting_name, {"from django.conf import settings"}
@@ -399,6 +436,26 @@ class MigrationWriter(object):
                 return "%s.as_manager()" % name, imports
             else:
                 return cls.serialize_deconstructed(manager_path, args, kwargs)
+        elif isinstance(value, Operation):
+            string, imports = OperationWriter(value, indentation=0).serialize()
+            # Nested operation, trailing comma is handled in upper OperationWriter._write()
+            return string.rstrip(','), imports
+        elif isinstance(value, functools.partial):
+            imports = {'import functools'}
+            # Serialize functools.partial() arguments
+            func_string, func_imports = cls.serialize(value.func)
+            args_string, args_imports = cls.serialize(value.args)
+            keywords_string, keywords_imports = cls.serialize(value.keywords)
+            # Add any imports needed by arguments
+            imports.update(func_imports)
+            imports.update(args_imports)
+            imports.update(keywords_imports)
+            return (
+                "functools.partial(%s, *%s, **%s)" % (
+                    func_string, args_string, keywords_string,
+                ),
+                imports,
+            )
         # Anything that knows how to deconstruct itself.
         elif hasattr(value, 'deconstruct'):
             return cls.serialize_deconstructed(*value.deconstruct())
@@ -432,6 +489,9 @@ class MigrationWriter(object):
                     "For more information, see "
                     "https://docs.djangoproject.com/en/%s/topics/migrations/#serializing-values"
                     % (value.__name__, module_name, get_docs_version()))
+            # Needed on Python 2 only
+            if module_name == '__builtin__':
+                return value.__name__, set()
             return "%s.%s" % (module_name, value.__name__), {"import %s" % module_name}
         # Other iterables
         elif isinstance(value, collections.Iterable):
@@ -472,7 +532,7 @@ from __future__ import unicode_literals
 %(imports)s
 
 class Migration(migrations.Migration):
-%(replaces_str)s
+%(replaces_str)s%(initial_str)s
     dependencies = [
 %(dependencies)s\
     ]
