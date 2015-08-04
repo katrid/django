@@ -38,7 +38,7 @@ DEFAULT_NAMES = ('verbose_name', 'verbose_name_plural', 'db_table', 'ordering',
                  'index_together', 'apps', 'default_permissions',
                  'select_on_save', 'default_related_name', 'field_groups',
                  # Special attributes
-                 'help_text', 'tabset', 'field_groups')
+                 'help_text', 'tabset', 'fieldsets', 'field_groups')
 
 
 class raise_deprecation(object):
@@ -151,6 +151,7 @@ class Options(object):
 
         # Special attributes
         self.tabset = None
+        self.fieldsets = None
         self.field_groups = None
 
     @lru_cache(maxsize=None)

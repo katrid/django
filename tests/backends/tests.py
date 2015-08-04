@@ -1135,3 +1135,8 @@ class TestSqliteThreadSharing(TransactionTestCase):
         thread.join()
 
         self.assertEqual(models.Object.objects.count(), 2)
+
+
+@unittest.skipUnless(connection.vendor == 'sqlserver', "Test only for SQLServer")
+class SQLServerTests(TestCase):
+    pass

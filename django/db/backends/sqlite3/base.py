@@ -307,7 +307,7 @@ FORMAT_QMARK_REGEX = re.compile(r'(?<!%)%s')
 
 class SQLiteCursorWrapper(Database.Cursor):
     """
-    Django uses "format" style placeholders, but pysqlite2 uses "qmark" style.
+    Django uses "format" style placeholders, but pysqlncli uses "qmark" style.
     This fixes it -- but note that if you want to use a literal "%s" in a query,
     you'll need to use "%%s".
     """

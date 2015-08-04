@@ -135,7 +135,7 @@ class Field(RegisterLookupMixin):
     description = property(_description)
 
     def __init__(self, verbose_name=None, name=None, primary_key=False,
-            max_length=None, unique=False, blank=True, null=True,
+            max_length=None, unique=False, blank=None, null=True,
             db_index=False, rel=None, default=NOT_PROVIDED, editable=True,
             serialize=True, unique_for_date=None, unique_for_month=None,
             unique_for_year=None, choices=None, help_text='', db_column=None,
@@ -147,6 +147,8 @@ class Field(RegisterLookupMixin):
         if primary_key:
             null = False
             blank = False
+        if blank is None:
+            blank = null
         self.name = name
         self.verbose_name = verbose_name  # May be set by set_attributes_from_name
         self._verbose_name = verbose_name  # Store original for deconstruction
@@ -1004,6 +1006,10 @@ class AutoField(Field):
 
     def formfield(self, **kwargs):
         return None
+
+
+class BigAutoField(AutoField):
+    description = _("Big (8 byte) integer")
 
 
 class BooleanField(Field):

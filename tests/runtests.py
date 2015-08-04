@@ -16,12 +16,6 @@ from django.test import TestCase, TransactionTestCase
 from django.test.utils import get_runner
 from django.utils import six
 from django.utils._os import upath
-from django.utils.deprecation import (
-    RemovedInDjango20Warning, RemovedInDjango21Warning,
-)
-
-warnings.simplefilter("error", RemovedInDjango20Warning)
-warnings.simplefilter("error", RemovedInDjango21Warning)
 
 RUNTESTS_DIR = os.path.abspath(os.path.dirname(upath(__file__)))
 
@@ -157,12 +151,6 @@ def setup(verbosity, test_labels):
         logger = logging.getLogger('py.warnings')
         handler = logging.StreamHandler()
         logger.addHandler(handler)
-
-    warnings.filterwarnings(
-        'ignore',
-        'django.contrib.webdesign will be removed in Django 2.0.',
-        RemovedInDjango20Warning
-    )
 
     # Load all the ALWAYS_INSTALLED_APPS.
     django.setup()

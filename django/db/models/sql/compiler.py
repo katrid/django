@@ -941,7 +941,10 @@ class SQLInsertCompiler(SQLCompiler):
             # Skip empty r_fmt to allow subclasses to customize behavior for
             # 3rd party backends. Refs #19096.
             if r_fmt:
-                result.append(r_fmt % col)
+                if callable(r_fmt):
+                    result.insert(*r_fmt(col))
+                else:
+                    result.append(r_fmt % col)
                 params += r_params
             return [(" ".join(result), tuple(params))]
         if can_bulk:

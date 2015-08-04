@@ -13,7 +13,7 @@ class Apps(object):
     """
     A registry that stores the configuration of installed applications.
 
-    It also keeps track of models eg. to provide reverse-relations.
+    It also django track of models eg. to provide reverse-relations.
     """
 
     def __init__(self, installed_apps=()):

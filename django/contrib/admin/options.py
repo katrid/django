@@ -153,7 +153,7 @@ class BaseModelAdmin(six.with_metaclass(forms.MediaDefiningClass)):
             # extra HTML -- the "add other" interface -- to the end of the
             # rendered output. formfield can be None if it came from a
             # OneToOneField with parent_link=True or a M2M intermediary.
-            if formfield and db_field.name not in self.raw_id_fields:
+            if formfield and db_field.name not in self.raw_id_fields and request:
                 related_modeladmin = self.admin_site._registry.get(db_field.rel.to)
                 wrapper_kwargs = {}
                 if related_modeladmin:
