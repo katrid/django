@@ -2148,6 +2148,7 @@ class OneToOneField(ForeignKey):
 
     def __init__(self, to, on_delete=None, to_field=None, **kwargs):
         kwargs['unique'] = True
+        kwargs.setdefault('null', False)
 
         if on_delete is None:
             warnings.warn(
